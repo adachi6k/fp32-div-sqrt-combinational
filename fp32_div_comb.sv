@@ -206,12 +206,19 @@ module fp32_div_comb (
         exc_overflow     = 1'b0;
         exc_underflow    = 1'b0;
         exc_inexact      = 1'b0;
+        // special cases: inf, zero, NaN
         if (is_nan_a || is_nan_b) begin
-            y = 32'h7fc00000; // qNaN
-            exc_invalid = 1'b1;
-        end else if (is_inf_a && is_inf_b) begin
+            // propagate NaN: invalid only for signaling NaNs
+            exc_invalid = ((is_nan_a && frac_a[22]==1'b0) || (is_nan_b && frac_b[22]==1'b0)) ? 1'b1 : 1'b0;
+            // propagate a quiet NaN payload from first NaN operand
+            if (is_nan_a)
+                y = {sign_a, 8'hff, 1'b1, frac_a[21:0]};
+            else
+                y = {sign_b, 8'hff, 1'b1, frac_b[21:0]};
+         end else if (is_inf_a && is_inf_b) begin
+            // inf/inf invalid
+            exc_invalid = 1;
             y = 32'h7fc00000;
-            exc_invalid = 1'b1;
         end else if (is_inf_a) begin
             y = {sign_z,8'hff,23'd0};
         end else if (is_inf_b) begin
@@ -262,13 +269,15 @@ module fp32_div_comb (
              end
              // final overflow/underflow checks
              if (exp_sum > 10'sd254) begin
+                 // overflow: result too large
+                 exc_overflow = 1'b1;
+                 exc_inexact  = 1'b1;
                  if (exp_sum == 10'sd255) begin
                      // saturate to max finite (exp=254, mant=all 1s)
                      y = {sign_z, 8'd254, 23'h7fffff};
                  end else begin
                      // true overflow -> infinity
                      y = {sign_z, 8'hff, 23'd0};
-                     exc_overflow = 1'b1;
                  end
              end else if (exp_sum <= -10'sd24) begin
                  // underflow beyond subnormal range -> flush to zero
@@ -293,10 +302,9 @@ module fp32_div_comb (
                 /* verilator lint_off WIDTHEXPAND */
                 mant_rounded  = mant_res + round_up_s;
                 /* verilator lint_on WIDTHEXPAND */
-                 // inexact flag if any rounding bits set
-                 exc_inexact   = guard_s || round_s || sticky_s;
-                // underflow flagged for any subnormal result
+                // inexact and underflow for any subnormal result (per SoftFloat)
                 exc_underflow = 1'b1;
+                exc_inexact   = 1'b1;
                 // subnormal or zero with rounding
                 if (mant_res == 23'h7fffff && round_up_s)
                     // rounding carries into normal range

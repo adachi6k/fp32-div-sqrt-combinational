@@ -99,8 +99,9 @@ int main(int argc, char** argv) {
                   << " round_up=" << static_cast<int>(dut->round_up)
                   << " |FLAG=" << (flag_pass ? " PASS" : " FAIL")
                   << " | math_flags=0x" << std::hex << math_flags << std::dec
-                  << " | dut_flags=0x" << std::hex << dut_flags  << std::dec
-                  << std::endl;
+                  << " | dut_flags=0x" << std::hex << dut_flags  << std::dec;
+
+        std::cout << std::endl;
 
         time_counter++;
     }
