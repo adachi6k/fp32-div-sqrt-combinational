@@ -7,8 +7,11 @@
 #include <ctime>
 #include <cstdint>
 #include <cmath>
-#include <cfenv>
 #include <iomanip>
+// SoftFloat reference library
+extern "C" {
+#include "softfloat.h"
+}
 
 int time_counter = 0;
 
@@ -41,12 +44,27 @@ int main(int argc, char** argv) {
         // capture RTL output
         union { uint32_t u; float f; } out_conv;
         out_conv.u = dut->y;
+        int dut_flags =
+	(dut->exc_invalid   << 4)|
+	(dut->exc_divzero   << 3)|
+	(dut->exc_overflow  << 2)|
+	(dut->exc_underflow << 1)|
+	(dut->exc_inexact       );
+
 
          // clear FP exceptions before libm division
-         feclearexcept(FE_ALL_EXCEPT);
+         // SoftFloat reference division
+         softfloat_exceptionFlags = 0;
+         //float32_t a_sf = ui32_to_f32(conv_a.u);
+         //float32_t b_sf = ui32_to_f32(conv_b.u);
+         float32_t a_sf;
+         float32_t b_sf;
+	 a_sf.v = conv_a.u;
+	 b_sf.v = conv_b.u;
+         float32_t r_sf = f32_div(a_sf, b_sf);
+         int math_flags = softfloat_exceptionFlags;
          union { uint32_t u; float f; } math_conv;
-        math_conv.f = conv_a.f / conv_b.f;
-        int math_flags = fegetexcept();
+         math_conv.u = r_sf.v;
 
         int32_t rtl_bits  = static_cast<int32_t>(out_conv.u);
         int32_t math_bits = static_cast<int32_t>(math_conv.u);
@@ -55,6 +73,7 @@ int main(int argc, char** argv) {
         // treat NaN-to-NaN as passing
         bool is_nan_case = std::isnan(math_conv.f) && std::isnan(out_conv.f);
         bool pass = is_nan_case || (ulp_diff <= 1);
+	bool flag_pass = (dut_flags == math_flags);
 
         // print detailed comparison, including exception flags
         std::cout << "Time: " << time_counter
@@ -78,12 +97,9 @@ int main(int argc, char** argv) {
                   << " dbg_lz_q="   << std::dec << static_cast<int>(dut->dbg_lz_q)
                   << " dbg_q_norm=0x" << std::hex << std::setw(13) << std::setfill('0') << static_cast<unsigned long long>(dut->dbg_q_norm) << std::dec
                   << " round_up=" << static_cast<int>(dut->round_up)
+                  << " |FLAG=" << (flag_pass ? " PASS" : " FAIL")
                   << " | math_flags=0x" << std::hex << math_flags << std::dec
-                  << " | exc_invalid=" << static_cast<int>(dut->exc_invalid)
-                  << " | exc_divzero=" << static_cast<int>(dut->exc_divzero)
-                  << " | exc_overflow=" << static_cast<int>(dut->exc_overflow)
-                  << " | exc_underflow=" << static_cast<int>(dut->exc_underflow)
-                  << " | exc_inexact=" << static_cast<int>(dut->exc_inexact)
+                  << " | dut_flags=0x" << std::hex << dut_flags  << std::dec
                   << std::endl;
 
         time_counter++;
