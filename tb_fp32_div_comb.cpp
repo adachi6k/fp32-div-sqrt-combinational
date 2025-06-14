@@ -23,7 +23,7 @@ int main(int argc, char** argv) {
 
     Vfp32_div_comb* dut = new Vfp32_div_comb();
 
-    while (time_counter < 50000000) {
+    while (time_counter < 60000000) {
         // generate random 32-bit pattern for input a (allow negative values)
         uint32_t rand_bits_a = ((uint32_t)(rand() & 0xFFFF) << 16) |
                               (uint32_t)(rand() & 0xFFFF);
