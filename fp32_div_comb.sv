@@ -1,5 +1,6 @@
 // filepath: fp32_div_comb.sv
 // Combinational IEEE754 single-precision divider
+/* verilator lint_off LATCH */
 module fp32_div_comb (
     input  logic [31:0] a,            // dividend
     input  logic [31:0] b,            // divisor
@@ -208,10 +209,14 @@ module fp32_div_comb (
         exc_inexact      = 1'b0;
         // special cases: inf, zero, NaN
         if (is_nan_a || is_nan_b) begin
-             // propagate NaN: invalid only for signaling NaNs
-             exc_invalid = ((is_nan_a && frac_a[22]==1'b0) || (is_nan_b && frac_b[22]==1'b0)) ? 1'b1 : 1'b0;
-             // propagate a quiet NaN payload from first NaN operand
-         end else if (is_inf_a && is_inf_b) begin
+            // propagate NaN: invalid only for signaling NaNs
+            exc_invalid = ((is_nan_a && frac_a[22]==1'b0) || (is_nan_b && frac_b[22]==1'b0)) ? 1'b1 : 1'b0;
+            // propagate a quiet NaN payload from first NaN operand
+            if (is_nan_a)
+                y = {sign_a, 8'hff, 1'b1, frac_a[21:0]};
+            else
+                y = {sign_b, 8'hff, 1'b1, frac_b[21:0]};
+        end else if (is_inf_a && is_inf_b) begin
              // inf/inf invalid
              exc_invalid = 1;
              y = 32'h7fc00000;
@@ -322,3 +327,4 @@ module fp32_div_comb (
          end
      end
 endmodule
+/* verilator lint_on LATCH */
