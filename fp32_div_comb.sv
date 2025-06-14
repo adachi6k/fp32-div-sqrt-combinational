@@ -45,7 +45,7 @@ module fp32_div_comb (
   assign sign_z = sign_a ^ sign_b;
 
   // count leading zeros
-  function automatic [4:0] count_lz(input [23:0] mant);
+  function automatic [4:0] count_lz(input logic [23:0] mant);
     reg [4:0] idx;
     begin
       count_lz = 5'd0;
@@ -61,7 +61,7 @@ module fp32_div_comb (
   // verilator lint_off WIDTHEXPAND
   // verilator lint_off WIDTHTRUNC
   // add function to count leading zeros in 50-bit quotient
-  function automatic [5:0] count_lz50(input [49:0] mant);
+  function automatic [5:0] count_lz50(input logic [49:0] mant);
     integer i;
     begin
       count_lz50 = 6'd50;
@@ -98,7 +98,7 @@ module fp32_div_comb (
   end
 
   // mantissa division (restoring) + guard/sticky: 50-bit dividend to get 23+2 bits precision
-  function automatic [50:0] div_mant(input [49:0] num, input [23:0] den);
+  function automatic [50:0] div_mant(input logic [49:0] num, input logic [23:0] den);
     integer i;
     reg [49:0] q;
     reg [24:0] r;
@@ -212,7 +212,8 @@ module fp32_div_comb (
     // special cases: inf, zero, NaN
     if (is_nan_a || is_nan_b) begin
       // propagate NaN: invalid only for signaling NaNs
-      exc_invalid = ((is_nan_a && frac_a[22]==1'b0) || (is_nan_b && frac_b[22]==1'b0)) ? 1'b1 : 1'b0;
+      exc_invalid = ((is_nan_a && frac_a[22]==1'b0) ||
+                     (is_nan_b && frac_b[22]==1'b0)) ? 1'b1 : 1'b0;
       // propagate a quiet NaN payload from first NaN operand
       if (is_nan_a) y = {sign_a, 8'hff, 1'b1, frac_a[21:0]};
       else y = {sign_b, 8'hff, 1'b1, frac_b[21:0]};

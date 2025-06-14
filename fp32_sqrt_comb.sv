@@ -29,7 +29,7 @@ module fp32_sqrt_comb (
   assign is_neg = sign && !is_zero;
 
   // Function to count leading zeros in 24-bit mantissa
-  function automatic [4:0] count_lz(input [23:0] mant);
+  function automatic [4:0] count_lz(input logic [23:0] mant);
     reg [4:0] idx;
     begin
       count_lz = 5'd0;
@@ -86,7 +86,7 @@ module fp32_sqrt_comb (
 
   // radix-4 pair-bit square root function returning {sticky, root[24:0]}
   // input: 50-bit operand; output[25] = sticky, [24:0] result bits (LSB is guard)
-  function automatic [25:0] sqrt_pair(input [49:0] op50);
+  function automatic [25:0] sqrt_pair(input logic [49:0] op50);
     integer i;
     reg [49:0] rem;
     reg [24:0] root;
