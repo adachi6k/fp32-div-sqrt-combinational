@@ -1,6 +1,11 @@
 module fp32_sqrt_comb (
     input  logic [31:0] a,      // IEEE754 single-precision input
-    output logic [31:0] y       // IEEE754 single-precision output (sqrt(a))
+    output logic [31:0] y,      // IEEE754 single-precision output (sqrt(a))
+    output logic exc_invalid,   // IEEE-754 exception: invalid operation
+    output logic exc_divzero,   // IEEE-754 exception: divide-by-zero (unused)
+    output logic exc_overflow,  // IEEE-754 exception: overflow
+    output logic exc_underflow, // IEEE-754 exception: underflow
+    output logic exc_inexact    // IEEE-754 exception: inexact result
 );
 
     // Unpack input
@@ -108,8 +113,13 @@ module fp32_sqrt_comb (
     endfunction
 
      always_comb begin
-         // defaults to avoid latches
-        sqrt_op       = '0;
+        // default exception flags
+        exc_invalid  = 1'b0;
+        exc_divzero  = 1'b0;
+        exc_overflow = 1'b0;
+        exc_underflow= 1'b0;
+        exc_inexact  = 1'b0;
+         sqrt_op       = '0;
         op50          = '0;
          raw_sticky    = '0;
          raw_root      = '0;
@@ -121,6 +131,7 @@ module fp32_sqrt_comb (
          rounded_ext   = '0;
          if (is_nan || (is_neg && !is_zero)) begin
              // NaN or negative input (except -0)
+            if (is_neg && !is_zero) exc_invalid = 1'b1;
              result = 32'h7fc00000;
          end else if (is_inf) begin
              // Infinity
@@ -140,6 +151,8 @@ module fp32_sqrt_comb (
              raw_root   = raw_sticky[24:0];
              guard_bit  = raw_root[0];
              sticky_bit = raw_sticky[25];
+            // inexact if any rounding bits set
+            exc_inexact = guard_bit | sticky_bit;
              // round-to-nearest-even with overflow detection
              rounded_ext = {1'b0, raw_root[24:1]} + {24'b0, guard_bit & (raw_root[1] | sticky_bit)};
              if (rounded_ext[24]) begin
@@ -153,7 +166,7 @@ module fp32_sqrt_comb (
             sqrt_frac = root_rounded;
          result      = {1'b0, out_exp, sqrt_frac[22:0]};
         end
-    end
+     end
 
     assign y = result;
 
