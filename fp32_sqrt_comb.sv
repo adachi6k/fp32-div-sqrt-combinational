@@ -1,3 +1,5 @@
+// filepath: fp32_sqrt_comb.sv
+// Combinational IEEE754 single-precision square-root
 module fp32_sqrt_comb (
     input  logic [31:0] a,              // IEEE754 single-precision input
     output logic [31:0] y,              // IEEE754 single-precision output (sqrt(a))
@@ -58,6 +60,10 @@ module fp32_sqrt_comb (
   logic signed [9:0] exp_unbias_s;
   logic        [7:0] sqrt_exp;
   logic signed [9:0] rebias;
+  // Prevent unused bit warnings
+  logic              unused_sqrt_frac_msb;
+  logic        [1:0] unused_rebias_hi;
+
   always_comb begin
     // compute signed unbiased exponent
     if (exp == 8'd0 && frac != 23'd0) begin
@@ -86,7 +92,7 @@ module fp32_sqrt_comb (
 
   // radix-4 pair-bit square root function returning {sticky, root[24:0]}
   // input: 50-bit operand; output[25] = sticky, [24:0] result bits (LSB is guard)
-  function automatic [25:0] sqrt_pair(input logic [49:0] op50);
+  function automatic [25:0] sqrt_pair(input logic [49:0] op50_arg);
     integer i;
     reg [49:0] rem;
     reg [24:0] root;
@@ -95,7 +101,7 @@ module fp32_sqrt_comb (
       rem  = 0;
       root = 0;
       for (i = 24; i >= 0; i = i - 1) begin
-        next2 = op50[2*i+:2];
+        next2 = op50_arg[2*i+:2];
         // shift remainder by 2 bits and append next2
         rem   = {rem[47:0], next2};
         // trial divisor as 50-bit: zero-extend {root,2'b01}
@@ -113,22 +119,26 @@ module fp32_sqrt_comb (
   endfunction
 
   always_comb begin
-    // default exception flags
-    exc_invalid   = 1'b0;
-    exc_divzero   = 1'b0;
-    exc_overflow  = 1'b0;
-    exc_underflow = 1'b0;
-    exc_inexact   = 1'b0;
-    sqrt_op       = '0;
-    op50          = '0;
-    raw_sticky    = '0;
-    raw_root      = '0;
-    guard_bit     = '0;
-    sticky_bit    = '0;
-    root_rounded  = '0;
-    sqrt_frac     = '0;
-    out_exp       = '0;
-    rounded_ext   = '0;
+    // defaults to avoid latches
+    exc_invalid          = 1'b0;
+    exc_divzero          = 1'b0;
+    exc_overflow         = 1'b0;
+    exc_underflow        = 1'b0;
+    exc_inexact          = 1'b0;
+    // default signals (avoid latches)
+    result               = '0;
+    unused_sqrt_frac_msb = 1'b0;
+    unused_rebias_hi     = 2'b0;
+    sqrt_op              = '0;
+    op50                 = '0;
+    raw_sticky           = '0;
+    raw_root             = '0;
+    guard_bit            = '0;
+    sticky_bit           = '0;
+    root_rounded         = '0;
+    sqrt_frac            = '0;
+    out_exp              = '0;
+    rounded_ext          = '0;
     if (is_nan) begin
       // NaN input: only signaling NaN raises invalid
       exc_invalid = (frac[22] == 1'b0) ? 1'b1 : 1'b0;
@@ -168,7 +178,11 @@ module fp32_sqrt_comb (
         out_exp      = sqrt_exp[7:0];
       end
       sqrt_frac = root_rounded;
-      result    = {1'b0, out_exp, sqrt_frac[22:0]};
+      // dummy assignments for lint
+      unused_sqrt_frac_msb = sqrt_frac[23];
+      unused_rebias_hi    = rebias[9:8];
+      // produce final result
+      result = {1'b0, out_exp, sqrt_frac[22:0]};
     end
   end
 

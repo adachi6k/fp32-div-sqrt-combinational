@@ -36,7 +36,25 @@ int main(int argc, char **argv) {
         0x7fa00000, // sNaN
         0x00000001, // min subnormal
         0x00800000, // min normal
-        0x7f7fffff  // max finite
+        0x7f7fffff, // max finite
+        0x40e4006e, // 7.12505 (observed failure)
+        0x016f609c, // 4.39667e-38 (observed failure)
+        0x2812c1b1, // 8.14663e-15 (observed failure)
+        0x67bee97d, // 1.80311e+24 (observed failure)
+        0x1ab82050, // 7.61528e-23 (observed failure)
+        0x59042172, // 2.32447e+15 (observed failure)
+        0x321bbcdd, // 9.06513e-09 (observed failure)
+        // Additional random failure cases
+        0x36a9405f, // 5.04409e-06
+        0x3fab6860, // 1.33912
+        0x72cb1062, // 8.04419e+30
+        0x6e002f83, // 9.91788e+27
+        0x2605ba5a, // 4.63962e-16
+        0x429850b4, // 76.1576
+        0x696c0b48, // 1.7835e+25
+        0x01cdf635, // 7.56584e-38
+        0x4b975f95, // 1.98408e+07
+        0x3b2c6f35  // 0.00263114
     };
     int num_cc = sizeof(corner_vals) / sizeof(corner_vals[0]);
     for (int i = 0; i < num_cc; ++i) {
