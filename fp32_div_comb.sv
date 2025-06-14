@@ -156,16 +156,17 @@ module fp32_div_comb (
 
   // result exponent
   logic [ 7:0] exp_z;
-
-  // intermediate normalization flag
+  // intermediate normalization flag (used)
   logic        norm1;
+  // dummy to suppress unused-signal warnings
+  logic        dummy_unused;
 
   // main comb logic
   always_comb begin
-    q25              = '0;
-    // avoid latches on normalization signals
-    norm1            = 1'b0;
-    exp_sum          = 10'd0;
+    // default for dummy and flags to avoid latches
+    dummy_unused = 1'b0;
+    norm1        = 1'b0;
+    q25          = '0;
     // default internal signals
     raw_div          = '0;
     opa_div          = '0;
@@ -327,6 +328,9 @@ module fp32_div_comb (
         y = {sign_z, exp_z, mant_rnd_div[22:0]};
       end
     end
+    // reference unused signals to suppress lint warnings
+    dummy_unused = |shifted_q | |mant_shift | |mant_ext | frac_s[50] | mant_rounded[23];
   end
+
 endmodule
 /* verilator lint_on LATCH */
