@@ -44,6 +44,7 @@ int main(int argc, char **argv) {
         {0x00000001, 0x00000001}, // min subnormal/min subnormal
         {0x00800000, 0x00800000}, // min normal/min normal
         {0x7f7fffff, 0x3f800000}, // max finite/1
+        {0x3781fd3f, 0xf8480000}  // 1.54959e-05 / -1.62259e+34 (observed underflow/inexact mismatch)
     };
     int num_cc = sizeof(corner_cases) / sizeof(corner_cases[0]);
     for (int i = 0; i < num_cc; ++i) {
