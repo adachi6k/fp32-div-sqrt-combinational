@@ -208,27 +208,29 @@ module fp32_div_comb (
         exc_inexact      = 1'b0;
         // special cases: inf, zero, NaN
         if (is_nan_a || is_nan_b) begin
-            // propagate NaN: invalid only for signaling NaNs
-            exc_invalid = ((is_nan_a && frac_a[22]==1'b0) || (is_nan_b && frac_b[22]==1'b0)) ? 1'b1 : 1'b0;
-            // propagate a quiet NaN payload from first NaN operand
-            if (is_nan_a)
-                y = {sign_a, 8'hff, 1'b1, frac_a[21:0]};
-            else
-                y = {sign_b, 8'hff, 1'b1, frac_b[21:0]};
+             // propagate NaN: invalid only for signaling NaNs
+             exc_invalid = ((is_nan_a && frac_a[22]==1'b0) || (is_nan_b && frac_b[22]==1'b0)) ? 1'b1 : 1'b0;
+             // propagate a quiet NaN payload from first NaN operand
          end else if (is_inf_a && is_inf_b) begin
-            // inf/inf invalid
-            exc_invalid = 1;
-            y = 32'h7fc00000;
+             // inf/inf invalid
+             exc_invalid = 1;
+             y = 32'h7fc00000;
         end else if (is_inf_a) begin
-            y = {sign_z,8'hff,23'd0};
-        end else if (is_inf_b) begin
+             y = {sign_z,8'hff,23'd0};
+        end else if (is_zero_a && is_zero_b) begin
+            // 0/0 invalid
+            exc_invalid = 1'b1;
             y = 32'h7fc00000;
-        end else if (is_zero_a && !is_zero_b) begin
+        end else if (is_inf_b) begin
+            // finite / inf => zero
             y = {sign_z,8'd0,23'd0};
+        end else if (is_zero_a && !is_zero_b) begin
+             y = {sign_z,8'd0,23'd0};
         end else if (is_zero_b) begin
+            // finite / 0 => divzero
             y = {sign_z,8'hff,23'd0};
             exc_divzero = 1'b1;
-        end else begin
+         end else begin
             // normalized division with post-div normalization and rounding
             // prepare operands for extended division
             // mantissa division (restoring) and dynamic normalization

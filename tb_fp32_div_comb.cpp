@@ -23,6 +23,59 @@ int main(int argc, char** argv) {
 
     Vfp32_div_comb* dut = new Vfp32_div_comb();
 
+    // === Corner-case tests ===
+    {
+        union { float f; uint32_t u; } conv_a_cc, conv_b_cc;
+        static const struct { uint32_t a, b; } corner_cases[] = {
+            {0x00000000, 0x00000000}, // 0/0
+            {0x00000000, 0x3f800000}, // 0/1
+            {0x80000000, 0x3f800000}, // -0/1
+            {0x3f800000, 0x00000000}, // 1/0
+            {0x7f800000, 0x3f800000}, // inf/1
+            {0x7f800000, 0x7f800000}, // inf/inf
+            {0x3f800000, 0x7f800000}, // 1/inf
+            {0x7fc00000, 0x3f800000}, // qNaN/1
+            {0x7fa00000, 0x3f800000}, // sNaN/1
+            {0x00000001, 0x00000001}, // min subnormal/min subnormal
+            {0x00800000, 0x00800000}, // min normal/min normal
+            {0x7f7fffff, 0x3f800000}, // max finite/1
+        };
+        int num_cc = sizeof(corner_cases)/sizeof(corner_cases[0]);
+        for (int i = 0; i < num_cc; ++i) {
+            conv_a_cc.u = corner_cases[i].a;
+            conv_b_cc.u = corner_cases[i].b;
+            dut->a = conv_a_cc.u;
+            dut->b = conv_b_cc.u;
+            dut->eval();
+            // capture outputs
+            union { uint32_t u; float f; } out_cc;
+            out_cc.u = dut->y;
+            // collect RTL flags
+            int dut_flags_cc = (dut->exc_invalid<<4)|(dut->exc_divzero<<3)|(dut->exc_overflow<<2)|(dut->exc_underflow<<1)|(dut->exc_inexact);
+            // reference via SoftFloat
+            softfloat_exceptionFlags = 0;
+            float32_t a_sf_cc; a_sf_cc.v = conv_a_cc.u;
+            float32_t b_sf_cc; b_sf_cc.v = conv_b_cc.u;
+            float32_t r_sf_cc = f32_div(a_sf_cc, b_sf_cc);
+            int math_flags_cc = softfloat_exceptionFlags;
+            union { uint32_t u; float f; } math_cc;
+            math_cc.u = r_sf_cc.v;
+            // ULP diff
+            int32_t rtl_bits_cc = static_cast<int32_t>(out_cc.u);
+            int32_t math_bits_cc = static_cast<int32_t>(math_cc.u);
+            uint32_t ulp_diff_cc = (rtl_bits_cc>math_bits_cc)?(rtl_bits_cc-math_bits_cc):(math_bits_cc-rtl_bits_cc);
+            bool is_nan_case_cc = std::isnan(math_cc.f) && std::isnan(out_cc.f);
+            bool pass_cc = is_nan_case_cc || (ulp_diff_cc <= 1);
+            // print
+            std::cout << "[CASE "<<i<<"] a="<<conv_a_cc.f<<" b="<<conv_b_cc.f
+                      <<" | rtl="<<out_cc.f<<" math="<<math_cc.f
+                      <<" | ulp_diff="<<ulp_diff_cc<<(pass_cc?" PASS":" FAIL")
+                      <<" | flags math=0x"<<std::hex<<math_flags_cc<<" rtl=0x"<<dut_flags_cc<<std::dec
+                      <<std::endl;
+        }
+        std::cout << "=== Corner-case tests done ===" << std::endl;
+    }
+
     while (time_counter < 60000000) {
         // generate random 32-bit pattern for input a (allow negative values)
         uint32_t rand_bits_a = ((uint32_t)(rand() & 0xFFFF) << 16) |

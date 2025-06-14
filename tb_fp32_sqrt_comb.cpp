@@ -20,6 +20,58 @@ int main(int argc, char** argv) {
 
     Vfp32_sqrt_comb* dut = new Vfp32_sqrt_comb();
 
+    // === Corner-case tests for sqrt ===
+    {
+        union { float f; uint32_t u; } conv_cc, out_cc, math_cc;
+        static const uint32_t corner_vals[] = {
+            0x00000000, // +0
+            0x80000000, // -0
+            0x3f800000, // 1.0
+            0x7f800000, // +inf
+            0xff800000, // -inf
+            0x7fc00000, // qNaN
+            0x7fa00000, // sNaN
+            0x00000001, // min subnormal
+            0x00800000, // min normal
+            0x7f7fffff  // max finite
+        };
+        int num_cc = sizeof(corner_vals)/sizeof(corner_vals[0]);
+        for (int i = 0; i < num_cc; ++i) {
+            conv_cc.u = corner_vals[i];
+            dut->a = conv_cc.u;
+            dut->eval();
+            out_cc.u = dut->y;
+            // reference via SoftFloat
+            softfloat_exceptionFlags = 0;
+            float32_t a_sf_cc; a_sf_cc.v = conv_cc.u;
+            float32_t r_sf_cc = f32_sqrt(a_sf_cc);
+            int math_flags_cc = softfloat_exceptionFlags;
+            math_cc.u = r_sf_cc.v;
+            // ULP diff
+            int32_t rtl_bits_cc = static_cast<int32_t>(out_cc.u);
+            int32_t math_bits_cc = static_cast<int32_t>(math_cc.u);
+            uint32_t ulp_diff_cc = (rtl_bits_cc > math_bits_cc)
+                                 ? (rtl_bits_cc - math_bits_cc)
+                                 : (math_bits_cc - rtl_bits_cc);
+            // flags
+            int dut_flags_cc =
+                (dut->exc_invalid << 4) |
+                (dut->exc_divzero << 3) |
+                (dut->exc_overflow << 2) |
+                (dut->exc_underflow << 1) |
+                (dut->exc_inexact);
+            bool is_nan_case_cc = std::isnan(math_cc.f) && std::isnan(out_cc.f);
+            bool pass_cc = is_nan_case_cc || (ulp_diff_cc <= 1);
+            std::cout << "[SQRT CASE "<< i <<"] a="<< conv_cc.f
+                      <<" | rtl="<< out_cc.f <<" math="<< math_cc.f
+                      <<" | ulp_diff="<< ulp_diff_cc << (pass_cc?" PASS":" FAIL")
+                      <<" | flags math=0x"<< std::hex << math_flags_cc
+                      <<" rtl=0x"<< dut_flags_cc << std::dec
+                      << std::endl;
+        }
+        std::cout << "=== Sqrt corner-case tests done ===" << std::endl;
+    }
+
     while (time_counter < 60000000) {
          // generate random 31-bit pattern for positive float
          uint32_t rand_bits = ((uint32_t)(rand() & 0x7FFF) << 16) |
