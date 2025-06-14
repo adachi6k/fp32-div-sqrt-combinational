@@ -54,7 +54,13 @@ int main(int argc, char **argv) {
         0x696c0b48, // 1.7835e+25
         0x01cdf635, // 7.56584e-38
         0x4b975f95, // 1.98408e+07
-        0x3b2c6f35  // 0.00263114
+        0x3b2c6f35, // 0.00263114
+        0x3f800001, // just above 1.0 (round-nearest)
+        0x4b000000, // 2^23 (exact int)
+        0x00800001, // just above min normal
+        0x00000002, // small subnormal
+        0x3f000000, // 0.5 (exact)
+        0x3e800000  // 0.25 (exact)
     };
     int num_cc = sizeof(corner_vals) / sizeof(corner_vals[0]);
     for (int i = 0; i < num_cc; ++i) {
@@ -136,7 +142,8 @@ int main(int argc, char **argv) {
 
     // If both outputs are NaN, consider as PASS
     bool is_nan_case = std::isnan(math_conv.f) && std::isnan(out_conv.f);
-    bool pass = is_nan_case || (ulp_diff <= 1);
+    // strict ULP match: only zero-difference or NaN-to-NaN passes
+    bool pass = is_nan_case || (ulp_diff == 0);
 
     // Print the output values
     std::cout << "Time: " << time_counter << " | sqrt_in: " << conv.f

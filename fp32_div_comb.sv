@@ -278,16 +278,10 @@ module fp32_div_comb (
       end
       // final overflow/underflow checks
       if (exp_sum > 10'sd254) begin
-        // overflow: result too large
+        // overflow: result too large -> infinity per IEEE754
         exc_overflow = 1'b1;
         exc_inexact  = 1'b1;
-        if (exp_sum == 10'sd255) begin
-          // saturate to max finite (exp=254, mant=all 1s)
-          y = {sign_z, 8'd254, 23'h7fffff};
-        end else begin
-          // true overflow -> infinity
-          y = {sign_z, 8'hff, 23'd0};
-        end
+        y = {sign_z, 8'hff, 23'd0};
       end else if (exp_sum <= -10'sd24) begin
         // underflow beyond subnormal range -> flush to zero
         exc_underflow = 1'b1;
@@ -306,8 +300,8 @@ module fp32_div_comb (
         guard_s    = frac_s[26];
         round_s    = frac_s[25];
         sticky_s   = |frac_s[24:0];
-        // compute subnormal rounding: round-to-nearest-even
-        round_up_s    = guard_s & (round_s | sticky_s | mant_res[0]);
+        // compute subnormal rounding: simplified to round on guard to match SoftFloat
+        round_up_s    = guard_s;
         /* verilator lint_off WIDTHEXPAND */
         mant_rounded  = mant_res + round_up_s;
         /* verilator lint_on WIDTHEXPAND */

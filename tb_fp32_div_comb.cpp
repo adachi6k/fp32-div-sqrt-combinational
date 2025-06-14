@@ -45,6 +45,14 @@ int main(int argc, char **argv) {
         {0x00800000, 0x00800000}, // min normal/min normal
         {0x7f7fffff, 0x3f800000}, // max finite/1
         {0x3781fd3f, 0xf8480000}  // 1.54959e-05 / -1.62259e+34 (observed underflow/inexact mismatch)
+        ,{0x3f800000, 0x40400000}  // 1.0 / 3.0 (rounding)
+        ,{0x3f800000, 0x41200000}  // 1.0 / 10.0 (rounding)
+        ,{0x00800000, 0x40000000}  // min normal / 2.0 (gradual underflow)
+        ,{0x00000001, 0x3f800000}  // min subnormal / 1.0 (exact)
+        ,{0x3f800000, 0x3f800000}  // 1.0 / 1.0 (exact)
+        ,{0x40400000, 0x40000000}  // 3.0 / 2.0 (exact)
+        ,{0xfc1f0fde, 0xbbc20685}   // -3.30359e+36 / -0.00592119 (overflow mismatch)
+        ,{0xaacf58b8, 0xeae1320a}   // -3.68321e-13 / -1.36122e+26 (subnormal rounding mismatch)
     };
     int num_cc = sizeof(corner_cases) / sizeof(corner_cases[0]);
     for (int i = 0; i < num_cc; ++i) {
@@ -153,7 +161,7 @@ int main(int argc, char **argv) {
 
     // treat NaN-to-NaN as passing
     bool is_nan_case = std::isnan(math_conv.f) && std::isnan(out_conv.f);
-    bool pass = is_nan_case || (ulp_diff <= 1);
+    bool pass = is_nan_case || (ulp_diff == 0);
     bool flag_pass = (dut_flags == math_flags);
 
     // print detailed comparison, including exception flags
