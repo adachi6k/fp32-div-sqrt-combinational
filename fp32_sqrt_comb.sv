@@ -129,9 +129,13 @@ module fp32_sqrt_comb (
          sqrt_frac     = '0;
          out_exp       = '0;
          rounded_ext   = '0;
-         if (is_nan || (is_neg && !is_zero)) begin
-             // NaN or negative input (except -0)
-            if (is_neg && !is_zero) exc_invalid = 1'b1;
+         if (is_nan) begin
+            // NaN input: only signaling NaN raises invalid
+            exc_invalid = (frac[22] == 1'b0) ? 1'b1 : 1'b0;
+             result = 32'h7fc00000;
+         end else if (is_neg && !is_zero) begin
+             // negative input (except -0): invalid operation
+             exc_invalid = 1'b1;
              result = 32'h7fc00000;
          end else if (is_inf) begin
              // Infinity
