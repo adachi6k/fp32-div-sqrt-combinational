@@ -1,177 +1,177 @@
 module fp32_sqrt_comb (
-    input  logic [31:0] a,      // IEEE754 single-precision input
-    output logic [31:0] y,      // IEEE754 single-precision output (sqrt(a))
-    output logic exc_invalid,   // IEEE-754 exception: invalid operation
-    output logic exc_divzero,   // IEEE-754 exception: divide-by-zero (unused)
-    output logic exc_overflow,  // IEEE-754 exception: overflow
-    output logic exc_underflow, // IEEE-754 exception: underflow
-    output logic exc_inexact    // IEEE-754 exception: inexact result
+    input  logic [31:0] a,              // IEEE754 single-precision input
+    output logic [31:0] y,              // IEEE754 single-precision output (sqrt(a))
+    output logic        exc_invalid,    // IEEE-754 exception: invalid operation
+    output logic        exc_divzero,    // IEEE-754 exception: divide-by-zero (unused)
+    output logic        exc_overflow,   // IEEE-754 exception: overflow
+    output logic        exc_underflow,  // IEEE-754 exception: underflow
+    output logic        exc_inexact     // IEEE-754 exception: inexact result
 );
 
-    // Unpack input
-    logic        sign;
-    logic [7:0]  exp;
-    logic [22:0] frac;
-    logic [7:0]  out_exp;
-    logic [23:0] sqrt_frac;
-    logic [31:0] result;
+  // Unpack input
+  logic        sign;
+  logic [ 7:0] exp;
+  logic [22:0] frac;
+  logic [ 7:0] out_exp;
+  logic [23:0] sqrt_frac;
+  logic [31:0] result;
 
-    // Special cases
-    logic is_zero, is_inf, is_nan, is_neg;
+  // Special cases
+  logic is_zero, is_inf, is_nan, is_neg;
 
-    assign sign = a[31];
-    assign exp  = a[30:23];
-    assign frac = a[22:0];
+  assign sign = a[31];
+  assign exp = a[30:23];
+  assign frac = a[22:0];
 
-    assign is_zero = (exp == 8'd0) && (frac == 23'd0);
-    assign is_inf  = (exp == 8'hff) && (frac == 23'd0);
-    assign is_nan  = (exp == 8'hff) && (frac != 23'd0);
-    assign is_neg  = sign && !is_zero;
+  assign is_zero = (exp == 8'd0) && (frac == 23'd0);
+  assign is_inf = (exp == 8'hff) && (frac == 23'd0);
+  assign is_nan = (exp == 8'hff) && (frac != 23'd0);
+  assign is_neg = sign && !is_zero;
 
-    // Function to count leading zeros in 24-bit mantissa
-    function automatic [4:0] count_lz(input [23:0] mant);
-        reg [4:0] idx;
-        begin
-            count_lz = 5'd0;
-            for (idx = 5'd23; idx != 5'd31; idx = idx - 1) begin
-                if (mant[idx]) begin
-                    count_lz = 5'd23 - idx;
-                    break;
-                end
-            end
+  // Function to count leading zeros in 24-bit mantissa
+  function automatic [4:0] count_lz(input [23:0] mant);
+    reg [4:0] idx;
+    begin
+      count_lz = 5'd0;
+      for (idx = 5'd23; idx != 5'd31; idx = idx - 1) begin
+        if (mant[idx]) begin
+          count_lz = 5'd23 - idx;
+          break;
         end
-    endfunction
-
-    // Normalize subnormal numbers: only mantissa LZD
-    logic [23:0] norm_mant;
-    always_comb begin
-        if (exp == 8'd0 && frac != 23'd0) begin
-            // Subnormal: shift mantissa to normalize
-            norm_mant = ({1'b0, frac} << count_lz({1'b0, frac}));
-        end else begin
-            // Normalized or zero
-            norm_mant = {1'b1, frac};
-        end
+      end
     end
+  endfunction
 
-    // Calculate sqrt exponent: signed unbiased then half and rebias
-    logic signed [9:0] exp_unbias_s;
-    logic [7:0]        sqrt_exp;
-    logic signed [9:0] rebias;
-    always_comb begin
-        // compute signed unbiased exponent
-        if (exp == 8'd0 && frac != 23'd0) begin
-            exp_unbias_s = -10'sd126 - $signed({5'd0, count_lz({1'b0, frac})});
-        end else if (exp == 8'd0) begin
-            exp_unbias_s = -10'sd127;
-        end else begin
-            exp_unbias_s = $signed({2'b00, exp}) - 10'sd127;
-        end
-        // divide by 2 and rebias
-        rebias    = (exp_unbias_s >>> 1) + 10'sd127;
-        sqrt_exp  = rebias[7:0];
+  // Normalize subnormal numbers: only mantissa LZD
+  logic [23:0] norm_mant;
+  always_comb begin
+    if (exp == 8'd0 && frac != 23'd0) begin
+      // Subnormal: shift mantissa to normalize
+      norm_mant = ({1'b0, frac} << count_lz({1'b0, frac}));
+    end else begin
+      // Normalized or zero
+      norm_mant = {1'b1, frac};
     end
+  end
 
-    // Calculate sqrt mantissa using radix-4 (pair-bit) algorithm (25bit result + guard)
-    logic [24:0] sqrt_op;
-    // extended operand (2*25 bits)
-    logic [49:0] op50;
-     // raw result plus sticky bit for correct rounding
-     logic [25:0] raw_sticky;
-     logic [24:0] raw_root;
-     logic        guard_bit, sticky_bit;
-     logic [23:0] root_rounded;
-     // intermediate extended rounded result
-     logic [24:0] rounded_ext;
+  // Calculate sqrt exponent: signed unbiased then half and rebias
+  logic signed [9:0] exp_unbias_s;
+  logic        [7:0] sqrt_exp;
+  logic signed [9:0] rebias;
+  always_comb begin
+    // compute signed unbiased exponent
+    if (exp == 8'd0 && frac != 23'd0) begin
+      exp_unbias_s = -10'sd126 - $signed({5'd0, count_lz({1'b0, frac})});
+    end else if (exp == 8'd0) begin
+      exp_unbias_s = -10'sd127;
+    end else begin
+      exp_unbias_s = $signed({2'b00, exp}) - 10'sd127;
+    end
+    // divide by 2 and rebias
+    rebias   = (exp_unbias_s >>> 1) + 10'sd127;
+    sqrt_exp = rebias[7:0];
+  end
 
-    // radix-4 pair-bit square root function returning {sticky, root[24:0]}
-    // input: 50-bit operand; output[25] = sticky, [24:0] result bits (LSB is guard)
-    function automatic [25:0] sqrt_pair(input [49:0] op50);
-        integer i;
-        reg [49:0] rem;
-        reg [24:0] root;
-        reg [1:0]  next2;
-        begin
-            rem = 0;
-            root = 0;
-            for (i = 24; i >= 0; i = i - 1) begin
-                next2 = op50[2*i +: 2];
-                // shift remainder by 2 bits and append next2
-                rem = {rem[47:0], next2};
-                // trial divisor as 50-bit: zero-extend {root,2'b01}
-                if (rem >= {23'b0, root, 2'b01}) begin
-                    rem = rem - {23'b0, root, 2'b01};
-                    // append '1' bit to root
-                    root = {root[23:0], 1'b1};
-                end else begin
-                    // append '0' bit to root
-                    root = {root[23:0], 1'b0};
-                end
-             end
-             sqrt_pair = {|rem, root};
+  // Calculate sqrt mantissa using radix-4 (pair-bit) algorithm (25bit result + guard)
+  logic [24:0] sqrt_op;
+  // extended operand (2*25 bits)
+  logic [49:0] op50;
+  // raw result plus sticky bit for correct rounding
+  logic [25:0] raw_sticky;
+  logic [24:0] raw_root;
+  logic guard_bit, sticky_bit;
+  logic [23:0] root_rounded;
+  // intermediate extended rounded result
+  logic [24:0] rounded_ext;
+
+  // radix-4 pair-bit square root function returning {sticky, root[24:0]}
+  // input: 50-bit operand; output[25] = sticky, [24:0] result bits (LSB is guard)
+  function automatic [25:0] sqrt_pair(input [49:0] op50);
+    integer i;
+    reg [49:0] rem;
+    reg [24:0] root;
+    reg [1:0] next2;
+    begin
+      rem  = 0;
+      root = 0;
+      for (i = 24; i >= 0; i = i - 1) begin
+        next2 = op50[2*i+:2];
+        // shift remainder by 2 bits and append next2
+        rem   = {rem[47:0], next2};
+        // trial divisor as 50-bit: zero-extend {root,2'b01}
+        if (rem >= {23'b0, root, 2'b01}) begin
+          rem  = rem - {23'b0, root, 2'b01};
+          // append '1' bit to root
+          root = {root[23:0], 1'b1};
+        end else begin
+          // append '0' bit to root
+          root = {root[23:0], 1'b0};
         end
-    endfunction
+      end
+      sqrt_pair = {|rem, root};
+    end
+  endfunction
 
-     always_comb begin
-        // default exception flags
-        exc_invalid  = 1'b0;
-        exc_divzero  = 1'b0;
-        exc_overflow = 1'b0;
-        exc_underflow= 1'b0;
-        exc_inexact  = 1'b0;
-         sqrt_op       = '0;
-        op50          = '0;
-         raw_sticky    = '0;
-         raw_root      = '0;
-         guard_bit     = '0;
-         sticky_bit    = '0;
-         root_rounded  = '0;
-         sqrt_frac     = '0;
-         out_exp       = '0;
-         rounded_ext   = '0;
-         if (is_nan) begin
-            // NaN input: only signaling NaN raises invalid
-            exc_invalid = (frac[22] == 1'b0) ? 1'b1 : 1'b0;
-             result = 32'h7fc00000;
-         end else if (is_neg && !is_zero) begin
-             // negative input (except -0): invalid operation
-             exc_invalid = 1'b1;
-             result = 32'h7fc00000;
-         end else if (is_inf) begin
-             // Infinity
-             result = 32'h7f800000;
-         end else if (is_zero) begin
-             // Zero
-             result = a;
-         end else begin
-             // Normal case
-             // Guard-bit rounding path: select even/odd exponent shift
-            // select even/odd exponent shift based on signed unbiased exponent
-            sqrt_op     = exp_unbias_s[0] ? {norm_mant, 1'b0} : {1'b0, norm_mant};
-            // build 50-bit operand: sqrt_op << 25
-            op50        = {sqrt_op, 25'b0};
-            // compute pair-bit sqrt
-            raw_sticky  = sqrt_pair(op50);
-             raw_root   = raw_sticky[24:0];
-             guard_bit  = raw_root[0];
-             sticky_bit = raw_sticky[25];
-            // inexact if any rounding bits set
-            exc_inexact = guard_bit | sticky_bit;
-             // round-to-nearest-even with overflow detection
-             rounded_ext = {1'b0, raw_root[24:1]} + {24'b0, guard_bit & (raw_root[1] | sticky_bit)};
-             if (rounded_ext[24]) begin
-                // rounding overflow, adjust mantissa and exponent
-                root_rounded = rounded_ext[24:1];
-                out_exp       = sqrt_exp[7:0] + 1;
-             end else begin
-                root_rounded = rounded_ext[23:0];
-                out_exp       = sqrt_exp[7:0];
-             end
-            sqrt_frac = root_rounded;
-         result      = {1'b0, out_exp, sqrt_frac[22:0]};
-        end
-     end
+  always_comb begin
+    // default exception flags
+    exc_invalid   = 1'b0;
+    exc_divzero   = 1'b0;
+    exc_overflow  = 1'b0;
+    exc_underflow = 1'b0;
+    exc_inexact   = 1'b0;
+    sqrt_op       = '0;
+    op50          = '0;
+    raw_sticky    = '0;
+    raw_root      = '0;
+    guard_bit     = '0;
+    sticky_bit    = '0;
+    root_rounded  = '0;
+    sqrt_frac     = '0;
+    out_exp       = '0;
+    rounded_ext   = '0;
+    if (is_nan) begin
+      // NaN input: only signaling NaN raises invalid
+      exc_invalid = (frac[22] == 1'b0) ? 1'b1 : 1'b0;
+      result = 32'h7fc00000;
+    end else if (is_neg && !is_zero) begin
+      // negative input (except -0): invalid operation
+      exc_invalid = 1'b1;
+      result = 32'h7fc00000;
+    end else if (is_inf) begin
+      // Infinity
+      result = 32'h7f800000;
+    end else if (is_zero) begin
+      // Zero
+      result = a;
+    end else begin
+      // Normal case
+      // Guard-bit rounding path: select even/odd exponent shift
+      // select even/odd exponent shift based on signed unbiased exponent
+      sqrt_op     = exp_unbias_s[0] ? {norm_mant, 1'b0} : {1'b0, norm_mant};
+      // build 50-bit operand: sqrt_op << 25
+      op50        = {sqrt_op, 25'b0};
+      // compute pair-bit sqrt
+      raw_sticky  = sqrt_pair(op50);
+      raw_root    = raw_sticky[24:0];
+      guard_bit   = raw_root[0];
+      sticky_bit  = raw_sticky[25];
+      // inexact if any rounding bits set
+      exc_inexact = guard_bit | sticky_bit;
+      // round-to-nearest-even with overflow detection
+      rounded_ext = {1'b0, raw_root[24:1]} + {24'b0, guard_bit & (raw_root[1] | sticky_bit)};
+      if (rounded_ext[24]) begin
+        // rounding overflow, adjust mantissa and exponent
+        root_rounded = rounded_ext[24:1];
+        out_exp      = sqrt_exp[7:0] + 1;
+      end else begin
+        root_rounded = rounded_ext[23:0];
+        out_exp      = sqrt_exp[7:0];
+      end
+      sqrt_frac = root_rounded;
+      result    = {1'b0, out_exp, sqrt_frac[22:0]};
+    end
+  end
 
-    assign y = result;
+  assign y = result;
 
 endmodule
