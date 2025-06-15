@@ -57,23 +57,21 @@ module fp32_div_comb (
     end
   endfunction
 
-  // verilator lint_off WIDTHEXPAND
-  // verilator lint_off WIDTHTRUNC
   // add function to count leading zeros in 50-bit quotient
   function automatic [5:0] count_lz50(input logic [49:0] mant);
-    integer i;
+    logic [5:0] i;
     begin
       count_lz50 = 6'd50;
-      for (i = 49; i >= 0; i = i - 1) begin
+      // count leading zeros with 6-bit index wrap
+      for (i = 6'd49; i != 6'd63; i = i - 6'd1) begin
         if (mant[i]) begin
+          // subtract with explicit 6-bit result
           count_lz50 = 6'd49 - i;
           break;
         end
       end
     end
   endfunction
-  // verilator lint_on WIDTHTRUNC
-  // verilator lint_on WIDTHEXPAND
 
   // normalize mantissas
   logic [23:0] norm_a, norm_b;
@@ -163,53 +161,53 @@ module fp32_div_comb (
   // main comb logic
   always_comb begin
     // default for dummy, flags, and exp_sum to avoid latches
-    dummy_unused = 1'b0;
-    norm1        = 1'b0;
-    exp_sum      = 10'd0;
+    dummy_unused = '0;
+    norm1        = '0;
+    exp_sum      = '0;
     q25          = '0;
     // default internal signals
     raw_div          = '0;
     opa_div          = '0;
     opb_div          = '0;
     q_div            = '0;
-    guard_div        = 0;
-    round_div        = 0;
-    sticky_div       = 0;
+    guard_div        = '0;
+    round_div        = '0;
+    sticky_div       = '0;
     q_full           = '0;
     q_norm           = '0;
     sum_expr         = '0;
     mant_rnd_div     = '0;
     mant_shift       = '0;
-    exp_z            = 0;
+    exp_z            = '0;
     // default dynamic-norm signals to prevent latches
-    sticky_raw_div   = 0;
-    round_up         = 1'b0;
-    lz_q             = 6'd0;
+    sticky_raw_div   = '0;
+    round_up         = '0;
+    lz_q             = '0;
     shifted_q        = '0;
     m                = '0;
     // subnormal defaults
-    S                = 0;
-    mant_res         = 23'd0;
-    guard_s          = 1'b0;
-    round_s          = 1'b0;
-    sticky_s         = 1'b0;
-    round_up_s       = 1'b0;
+    S                = '0;
+    mant_res         = '0;
+    guard_s          = '0;
+    round_s          = '0;
+    sticky_s         = '0;
+    round_up_s       = '0;
     frac_s           = '0;
     mant_rounded     = '0;
     dbg_q_div        = '0;
-    dbg_guard_div    = 0;
-    dbg_sticky_div   = 0;
+    dbg_guard_div    = '0;
+    dbg_sticky_div   = '0;
     dbg_raw_div_full = '0;
-    dbg_q25          = 25'd0;
-    dbg_m            = 25'd0;
-    dbg_lz_q         = 6'd0;
+    dbg_q25          = '0;
+    dbg_m            = '0;
+    dbg_lz_q         = '0;
     dbg_q_norm       = '0;
     // default exception flags
-    exc_invalid      = 1'b0;
-    exc_divzero      = 1'b0;
-    exc_overflow     = 1'b0;
-    exc_underflow    = 1'b0;
-    exc_inexact      = 1'b0;
+    exc_invalid      = '0;
+    exc_divzero      = '0;
+    exc_overflow     = '0;
+    exc_underflow    = '0;
+    exc_inexact      = '0;
     // special cases: inf, zero, NaN
     if (is_nan_a || is_nan_b) begin
       // propagate NaN: invalid only for signaling NaNs
@@ -288,9 +286,7 @@ module fp32_div_comb (
         exc_inexact = 1'b1;
         y = {sign_z, 8'd0, 23'd0};
       end else if (exp_sum <= 10'sd0) begin
-        /* verilator lint_off WIDTHEXPAND */
-        S = 1 - exp_sum;
-        /* verilator lint_on WIDTHEXPAND */
+        S = 1 - integer'(exp_sum);
         // clamp max shift to quotient width
         if (S > 50) S = 50;
         // combine quotient and raw sticky for shifting
@@ -302,9 +298,8 @@ module fp32_div_comb (
         sticky_s   = |frac_s[24:0];
         // compute subnormal rounding: simplified to round on guard to match SoftFloat
         round_up_s    = guard_s;
-        /* verilator lint_off WIDTHEXPAND */
-        mant_rounded  = mant_res + round_up_s;
-        /* verilator lint_on WIDTHEXPAND */
+        // round-to-nearest-even for subnormals: explicit 24-bit addition
+        mant_rounded  = mant_res + {23'd0, round_up_s};
         // inexact and underflow for any subnormal result (per SoftFloat)
         exc_underflow = 1'b1;
         exc_inexact   = 1'b1;
