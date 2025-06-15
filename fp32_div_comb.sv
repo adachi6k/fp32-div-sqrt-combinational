@@ -1,6 +1,5 @@
 // filepath: fp32_div_comb.sv
 // Combinational IEEE754 single-precision divider
-/* verilator lint_off LATCH */
 module fp32_div_comb (
     input  logic [31:0] a,                 // dividend
     input  logic [31:0] b,                 // divisor
@@ -163,9 +162,10 @@ module fp32_div_comb (
 
   // main comb logic
   always_comb begin
-    // default for dummy and flags to avoid latches
+    // default for dummy, flags, and exp_sum to avoid latches
     dummy_unused = 1'b0;
     norm1        = 1'b0;
+    exp_sum      = 10'd0;
     q25          = '0;
     // default internal signals
     raw_div          = '0;
@@ -323,8 +323,11 @@ module fp32_div_comb (
       end
     end
     // reference unused signals to suppress lint warnings
-    dummy_unused = |shifted_q | |mant_shift | |mant_ext | frac_s[50] | mant_rounded[23];
+    dummy_unused = |shifted_q      // entire shifted_q vector
+                   | |mant_shift     // entire mant_shift vector
+                   | |mant_ext       // entire mant_ext vector
+                   | frac_s[50]      // msb of frac_s
+                   | mant_rounded[23];// msb of mant_rounded
   end
 
 endmodule
-/* verilator lint_on LATCH */
