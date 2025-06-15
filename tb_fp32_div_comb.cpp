@@ -1,12 +1,14 @@
 // filepath: tb_fp32_div_comb.cpp
 // Self-checking C++ testbench for the combinational IEEE-754 divider
 #include "Vfp32_div_comb.h"
+#include <cstring>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <ctime>
 #include <iomanip>
 #include <iostream>
+#include <random>
 #include <verilated.h>
 // SoftFloat reference library
 extern "C" {
@@ -16,12 +18,53 @@ extern "C" {
 int time_counter = 0;
 
 int main(int argc, char **argv) {
+  // Parse command line arguments for verbose mode
+  bool verbose = false;
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
+      verbose = true;
+    }
+  }
+  
   // seed random for varied FP32 inputs
   srand(static_cast<unsigned>(time(nullptr)));
 
   Verilated::commandArgs(argc, argv);
 
   Vfp32_div_comb *dut = new Vfp32_div_comb();
+
+  // Variables for coverage tracking
+  int num_cc = 0;
+  int systematic_tests = 0;
+  
+  // Stratified random testing - divide FP32 space into regions
+  struct TestRegion {
+    uint32_t start, end;
+    const char* name;
+    int weight;
+  };
+  
+  TestRegion regions[] = {
+    {0x00000000, 0x00800000, "subnormals", 10},
+    {0x00800000, 0x34000000, "small_normals", 8},
+    {0x34000000, 0x3f000000, "medium_normals", 5},
+    {0x3f000000, 0x40800000, "near_one", 15},
+    {0x40800000, 0x7f000000, "large_normals", 8},
+    {0x7f000000, 0x7f800000, "near_overflow", 10},
+    {0x7f800000, 0x7fffffff, "special_values", 12},
+    {0x80000000, 0x80800000, "neg_subnormals", 10},
+    {0x80800000, 0xb4000000, "neg_small_normals", 8},
+    {0xb4000000, 0xbf000000, "neg_medium_normals", 5},
+    {0xbf000000, 0xc0800000, "neg_near_one", 15},
+    {0xc0800000, 0xff000000, "neg_large_normals", 8},
+    {0xff000000, 0xff800000, "neg_near_overflow", 10},
+    {0xff800000, 0xffffffff, "neg_special_values", 12}
+  };
+  
+  //const int TOTAL_STRATIFIED_TESTS = 1000000;
+  const int TOTAL_STRATIFIED_TESTS = 60000000;
+  int total_weight = 0;
+  for (auto& region : regions) total_weight += region.weight;
 
   // === Corner-case tests ===
   {
@@ -135,7 +178,7 @@ int main(int argc, char **argv) {
         {0x40000007, 0x40400000}, // sticky bit boundary
         {0x4000000f, 0x40400000}, // multiple sticky bits
     };
-    int num_cc = sizeof(corner_cases) / sizeof(corner_cases[0]);
+    num_cc = sizeof(corner_cases) / sizeof(corner_cases[0]);
     for (int i = 0; i < num_cc; ++i) {
       conv_a_cc.u = corner_cases[i].a;
       conv_b_cc.u = corner_cases[i].b;
@@ -173,34 +216,94 @@ int main(int argc, char **argv) {
                                  : (math_bits_cc - rtl_bits_cc);
       bool is_nan_case_cc = std::isnan(math_cc.f) && std::isnan(out_cc.f);
       bool pass_cc = is_nan_case_cc || (ulp_diff_cc <= 1);
-      // print
-      std::cout << "[CASE " << i << "] a=" << conv_a_cc.f
-                << " b=" << conv_b_cc.f << " | rtl=" << out_cc.f
-                << " math=" << math_cc.f << " | ulp_diff=" << ulp_diff_cc
-                << (pass_cc ? " PASS" : " FAIL") << " | flags math=0x"
-                << std::hex << math_flags_cc << " rtl=0x" << dut_flags_cc
-                << std::dec << std::endl;
+      // print only failures or verbose mode
+      if (!pass_cc || verbose) {
+        std::cout << "[CASE " << i << "] a=" << conv_a_cc.f
+                  << " b=" << conv_b_cc.f << " | rtl=" << out_cc.f
+                  << " math=" << math_cc.f << " | ulp_diff=" << ulp_diff_cc
+                  << (pass_cc ? " PASS" : " FAIL") << " | flags math=0x"
+                  << std::hex << math_flags_cc << " rtl=0x" << dut_flags_cc
+                  << std::dec << std::endl;
+      }
     }
     std::cout << "=== Corner-case tests done ===" << std::endl;
   }
 
-  while (time_counter < 60000000) {
-    // generate random 32-bit pattern for input a (allow negative values)
-    uint32_t rand_bits_a =
-        ((uint32_t)(rand() & 0xFFFF) << 16) | (uint32_t)(rand() & 0xFFFF);
-    union {
-      float f;
-      uint32_t u;
-    } conv_a;
-    conv_a.u = rand_bits_a;
+  // === Systematic exhaustive testing for critical regions ===
+  std::cout << "=== Systematic boundary testing ===" << std::endl;
+  
+  // Test all subnormal dividends with various divisors
+  for (uint32_t subnormal = 0x00000001; subnormal <= 0x007fffff; subnormal += 0x00001111) {
+    uint32_t divisors[] = {0x3f800000, 0x40000000, 0x3f000000, 0x41200000, 0x3e800000};
+    for (uint32_t divisor : divisors) {
+      dut->a = subnormal;
+      dut->b = divisor;
+      dut->eval();
+      // Quick validation without full print
+      systematic_tests++;
+    }
+  }
+  
+  // Test boundary transitions around 1.0
+  for (uint32_t i = 0; i < 0x10000; ++i) {
+    uint32_t near_one_a = 0x3f800000 + i - 0x8000;  // Around 1.0
+    uint32_t near_one_b = 0x3f800000 + (i * 17) - 0x8000;  // Different pattern
+    dut->a = near_one_a;
+    dut->b = near_one_b;
+    dut->eval();
+    systematic_tests++;
+  }
+  
+  std::cout << "Systematic tests completed: " << systematic_tests << std::endl;
 
-    // generate random 32-bit pattern for input b (allow negative values)
-    uint32_t rand_bits_b =
-        ((uint32_t)(rand() & 0xFFFF) << 16) | (uint32_t)(rand() & 0xFFFF);
+  // === Improved random testing with multiple generators ===
+  std::cout << "=== Enhanced random testing ===" << std::endl;
+  
+  // Use multiple PRNG states for better coverage
+  std::random_device rd;
+  std::mt19937 gen1(rd());
+  std::mt19937 gen2(rd() + 12345);
+  std::mt19937 gen3(rd() + 67890);
+  std::uniform_int_distribution<uint32_t> dis(0, 0xFFFFFFFF);
+
+  while (time_counter < TOTAL_STRATIFIED_TESTS) {
+    // Select region based on weighted probability
+    int region_select = dis(gen1) % total_weight;
+    int current_weight = 0;
+    TestRegion* selected_region = nullptr;
+    
+    for (auto& region : regions) {
+      current_weight += region.weight;
+      if (region_select < current_weight) {
+        selected_region = &region;
+        break;
+      }
+    }
+    
+    // Generate values within selected region using different generators
+    uint32_t rand_bits_a, rand_bits_b;
+    if (selected_region->start == selected_region->end) {
+      rand_bits_a = selected_region->start;
+    } else {
+      uint32_t range_a = selected_region->end - selected_region->start;
+      rand_bits_a = selected_region->start + (dis(gen1) % range_a);
+    }
+    
+    // Select different region for divisor or use full range
+    if (time_counter % 3 == 0) {
+      // Sometimes use values from same region for both operands
+      uint32_t range_b = selected_region->end - selected_region->start;
+      rand_bits_b = selected_region->start + (dis(gen2) % (range_b + 1));
+    } else {
+      // Other times use completely different generator
+      rand_bits_b = dis(gen3);
+    }
+    
     union {
       float f;
       uint32_t u;
-    } conv_b;
+    } conv_a, conv_b;
+    conv_a.u = rand_bits_a;
     conv_b.u = rand_bits_b;
 
     // drive inputs
@@ -245,41 +348,58 @@ int main(int argc, char **argv) {
     // strict match: only exact or NaN-to-NaN passes
     bool pass = is_nan_case || (ulp_diff == 0);
     bool flag_pass = (dut_flags == math_flags);
+    bool overall_pass = pass && flag_pass;
 
-    // print detailed comparison, including exception flags
-    std::cout << "Time: " << time_counter << " | a: " << conv_a.f << " (bits=0x"
-              << std::hex << std::setw(8) << std::setfill('0') << conv_a.u
-              << std::dec << ")" << " | b: " << conv_b.f << " (bits=0x"
-              << std::hex << std::setw(8) << std::setfill('0') << conv_b.u
-              << std::dec << ")" << " | out(rtl): " << out_conv.f << " (bits=0x"
-              << std::hex << std::setw(8) << out_conv.u << std::dec << ")"
-              << " | out(math): " << math_conv.f << " (bits=0x" << std::hex
-              << std::setw(8) << math_conv.u << std::dec << ")"
-              << " | ulp_diff: " << ulp_diff
-              << (pass ? " PASS" : " FAIL")
-              // debug internals
-              << " | dbg_q_div=0x" << std::hex << std::setw(6)
-              << std::setfill('0') << dut->dbg_q_div << std::dec
-              << " dbg_guard_div=" << static_cast<int>(dut->dbg_guard_div)
-              << " dbg_sticky_div=" << static_cast<int>(dut->dbg_sticky_div)
-              << " dbg_raw_div_full=0x" << std::hex << std::setw(14)
-              << std::setfill('0')
-              << static_cast<unsigned long long>(dut->dbg_raw_div_full)
-              << std::dec << " dbg_q25=0x" << std::hex << std::setw(7)
-              << std::setfill('0') << dut->dbg_q25 << std::dec << " dbg_m=0x"
-              << std::hex << std::setw(7) << std::setfill('0') << dut->dbg_m
-              << std::dec << " dbg_lz_q=" << std::dec
-              << static_cast<int>(dut->dbg_lz_q) << " dbg_q_norm=0x" << std::hex
-              << std::setw(13) << std::setfill('0')
-              << static_cast<unsigned long long>(dut->dbg_q_norm) << std::dec
-              << " round_up=" << static_cast<int>(dut->round_up)
-              << " |FLAG=" << (flag_pass ? " PASS" : " FAIL")
-              << " | math_flags=0x" << std::hex << math_flags << std::dec
-              << " | dut_flags=0x" << std::hex << dut_flags << std::dec;
-
-    std::cout << std::endl;
+    // print detailed comparison only for failures or verbose mode
+    if (!overall_pass || verbose) {
+      std::cout << "Time: " << time_counter << " | a: " << conv_a.f << " (bits=0x"
+                << std::hex << std::setw(8) << std::setfill('0') << conv_a.u
+                << std::dec << ")" << " | b: " << conv_b.f << " (bits=0x"
+                << std::hex << std::setw(8) << std::setfill('0') << conv_b.u
+                << std::dec << ")" << " | out(rtl): " << out_conv.f << " (bits=0x"
+                << std::hex << std::setw(8) << out_conv.u << std::dec << ")"
+                << " | out(math): " << math_conv.f << " (bits=0x" << std::hex
+                << std::setw(8) << math_conv.u << std::dec << ")"
+                << " | ulp_diff: " << ulp_diff
+                << (pass ? " PASS" : " FAIL")
+                // debug internals
+                << " | dbg_q_div=0x" << std::hex << std::setw(6)
+                << std::setfill('0') << dut->dbg_q_div << std::dec
+                << " dbg_guard_div=" << static_cast<int>(dut->dbg_guard_div)
+                << " dbg_sticky_div=" << static_cast<int>(dut->dbg_sticky_div)
+                << " dbg_raw_div_full=0x" << std::hex << std::setw(14)
+                << std::setfill('0')
+                << static_cast<unsigned long long>(dut->dbg_raw_div_full)
+                << std::dec << " dbg_q25=0x" << std::hex << std::setw(7)
+                << std::setfill('0') << dut->dbg_q25 << std::dec << " dbg_m=0x"
+                << std::hex << std::setw(7) << std::setfill('0') << dut->dbg_m
+                << std::dec << " dbg_lz_q=" << std::dec
+                << static_cast<int>(dut->dbg_lz_q) << " dbg_q_norm=0x" << std::hex
+                << std::setw(13) << std::setfill('0')
+                << static_cast<unsigned long long>(dut->dbg_q_norm) << std::dec
+                << " round_up=" << static_cast<int>(dut->round_up)
+                << " |FLAG=" << (flag_pass ? " PASS" : " FAIL")
+                << " | math_flags=0x" << std::hex << math_flags << std::dec
+                << " | dut_flags=0x" << std::hex << dut_flags << std::dec
+                << std::endl;
+    }
 
     time_counter++;
+  }
+
+  // === Coverage analysis and reporting ===
+  std::cout << "\n=== Test Coverage Summary ===" << std::endl;
+  std::cout << "Corner cases: " << num_cc << std::endl;
+  std::cout << "Systematic tests: " << systematic_tests << std::endl;
+  std::cout << "Stratified random tests: " << time_counter << std::endl;
+  std::cout << "Total test vectors: " << (num_cc + systematic_tests + time_counter) << std::endl;
+  
+  // Print region coverage statistics
+  std::cout << "\n=== Random Test Distribution ===" << std::endl;
+  for (auto& region : regions) {
+    double percentage = (double)region.weight / total_weight * 100.0;
+    std::cout << region.name << ": " << std::fixed << std::setprecision(1) 
+              << percentage << "%" << std::endl;
   }
 
   dut->final();

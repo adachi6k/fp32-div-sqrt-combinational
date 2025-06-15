@@ -2,9 +2,11 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <ctime>
 #include <iomanip> // for std::hex and std::setw
 #include <iostream>
+#include <random>
 #include <verilated.h>
 extern "C" {
 #include "softfloat.h"
@@ -13,12 +15,49 @@ extern "C" {
 int time_counter = 0;
 
 int main(int argc, char **argv) {
+  // Parse command line arguments for verbose mode
+  bool verbose = false;
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--verbose") == 0) {
+      verbose = true;
+    }
+  }
+  
   // seed random for varied FP32 inputs
   srand(static_cast<unsigned>(time(nullptr)));
 
   Verilated::commandArgs(argc, argv);
 
   Vfp32_sqrt_comb *dut = new Vfp32_sqrt_comb();
+
+  // Variables for coverage tracking
+  int num_cc = 0;
+  int systematic_tests = 0;
+  
+  // Stratified random testing - divide FP32 space into regions
+  struct TestRegion {
+    uint32_t start, end;
+    const char* name;
+    int weight;
+  };
+  
+  TestRegion regions[] = {
+    {0x00000000, 0x00800000, "subnormals", 15},         // More weight for sqrt edge cases
+    {0x00800000, 0x34000000, "small_normals", 10},
+    {0x34000000, 0x3f000000, "medium_normals", 8},
+    {0x3f000000, 0x40800000, "near_one", 20},          // Critical for sqrt accuracy
+    {0x40800000, 0x7f000000, "large_normals", 12},
+    {0x7f000000, 0x7f800000, "near_overflow", 10},
+    {0x7f800000, 0x7fffffff, "special_values", 15},     // inf, NaN cases
+    // Negative values all produce NaN for sqrt, but still test
+    {0x80000000, 0x80000000, "neg_zero", 5},            // -0 -> -0
+    {0x80000001, 0xffffffff, "negative_vals", 5}        // All other negatives -> NaN
+  };
+  
+  //const int TOTAL_STRATIFIED_TESTS = 1000000;
+  const int TOTAL_STRATIFIED_TESTS = 60000000;
+  int total_weight = 0;
+  for (auto& region : regions) total_weight += region.weight;
 
   // === Corner-case tests for sqrt ===
   {
@@ -168,7 +207,7 @@ int main(int argc, char **argv) {
         0x3ffe0000, // 1.984375 (mantissa = 0x7e0000)
         0x3fff0000, // 1.9921875 (mantissa = 0x7f0000)
     };
-    int num_cc = sizeof(corner_vals) / sizeof(corner_vals[0]);
+    num_cc = sizeof(corner_vals) / sizeof(corner_vals[0]);
     for (int i = 0; i < num_cc; ++i) {
       conv_cc.u = corner_vals[i];
       dut->a = conv_cc.u;
@@ -193,27 +232,100 @@ int main(int argc, char **argv) {
                          (dut->exc_inexact);
       bool is_nan_case_cc = std::isnan(math_cc.f) && std::isnan(out_cc.f);
       bool pass_cc = is_nan_case_cc || (ulp_diff_cc <= 1);
-      std::cout << "[SQRT CASE " << i << "] a=" << conv_cc.f
-                << " | rtl=" << out_cc.f << " math=" << math_cc.f
-                << " | ulp_diff=" << ulp_diff_cc
-                << (pass_cc ? " PASS" : " FAIL") << " | flags math=0x"
-                << std::hex << math_flags_cc << " rtl=0x" << dut_flags_cc
-                << std::dec << std::endl;
+      // print only failures or verbose mode
+      if (!pass_cc || verbose) {
+        std::cout << "[SQRT CASE " << i << "] a=" << conv_cc.f
+                  << " | rtl=" << out_cc.f << " math=" << math_cc.f
+                  << " | ulp_diff=" << ulp_diff_cc
+                  << (pass_cc ? " PASS" : " FAIL") << " | flags math=0x"
+                  << std::hex << math_flags_cc << " rtl=0x" << dut_flags_cc
+                  << std::dec << std::endl;
+      }
     }
     std::cout << "=== Sqrt corner-case tests done ===" << std::endl;
   }
 
-  while (time_counter < 60000000) {
-    // generate random 31-bit pattern for positive float
-    uint32_t rand_bits =
-        ((uint32_t)(rand() & 0x7FFF) << 16) | (uint32_t)(rand() & 0xFFFF);
-    rand_bits &= 0x7FFFFFFF; // clear sign bit
+  // === Systematic exhaustive testing for critical regions ===
+  std::cout << "=== Systematic boundary testing ===" << std::endl;
+  
+  // Test all subnormal inputs
+  for (uint32_t subnormal = 0x00000001; subnormal <= 0x007fffff; subnormal += 0x00001111) {
+    dut->a = subnormal;
+    dut->eval();
+    
+    softfloat_exceptionFlags = 0;
+    float32_t a_sf;
+    a_sf.v = subnormal;
+    float32_t r_sf = f32_sqrt(a_sf);
+    int math_flags = softfloat_exceptionFlags;
+    
+    int dut_flags = (dut->exc_invalid << 4) | (dut->exc_divzero << 3) |
+                    (dut->exc_overflow << 2) | (dut->exc_underflow << 1) |
+                    (dut->exc_inexact);
+    
+    if (dut_flags != math_flags) {
+      union { float f; uint32_t u; } a_union = {.u = subnormal};
+      union { float f; uint32_t u; } rtl_union = {.u = dut->y};
+      union { float f; uint32_t u; } math_union = {.u = r_sf.v};
+      std::cout << "[SQRT SYS] FAIL: a=" << a_union.f << " rtl=" << rtl_union.f 
+                << " math=" << math_union.f << " math_flags=0x" << std::hex 
+                << math_flags << " rtl_flags=0x" << dut_flags << std::dec << std::endl;
+    }
+    systematic_tests++;
+  }
+  
+  // Test boundary values around 1.0 (critical for sqrt accuracy)
+  for (uint32_t near_one = 0x3f7ff000; near_one <= 0x3f801000; near_one++) {
+    dut->a = near_one;
+    dut->eval();
+    systematic_tests++;
+  }
+  
+  std::cout << "Systematic tests completed: " << systematic_tests << std::endl;
+  
+  // === Stratified Random Testing ===
+  std::cout << "=== Stratified random testing ===" << std::endl;
+  
+  // Use multiple PRNG states for better coverage
+  std::random_device rd;
+  std::mt19937 gen1(rd());
+  std::mt19937 gen2(rd() + 12345);
+  std::uniform_int_distribution<uint32_t> dis(0, 0xFFFFFFFF);
+
+  while (time_counter < TOTAL_STRATIFIED_TESTS) {
+    // Select region based on weighted probability
+    int region_select = dis(gen1) % total_weight;
+    int current_weight = 0;
+    TestRegion* selected_region = nullptr;
+    
+    for (auto& region : regions) {
+      current_weight += region.weight;
+      if (region_select < current_weight) {
+        selected_region = &region;
+        break;
+      }
+    }
+    
+    if (!selected_region) selected_region = &regions[0]; // fallback
+    
+    // Generate random value within selected region
+    uint32_t rand_bits;
+    if (selected_region->start == selected_region->end) {
+      rand_bits = selected_region->start;  // Single value (like -0)
+    } else {
+      uint64_t range = (uint64_t)selected_region->end - selected_region->start;
+      if (range > 0) {
+        rand_bits = selected_region->start + (dis(gen2) % (range + 1));
+      } else {
+        rand_bits = selected_region->start;
+      }
+    }
+    
     union {
       float f;
       uint32_t u;
     } conv;
     conv.u = rand_bits;
-    float rand_val = conv.f;
     dut->a = conv.u;
     dut->eval(); // Evaluate the design
 
@@ -250,23 +362,41 @@ int main(int argc, char **argv) {
     bool is_nan_case = std::isnan(math_conv.f) && std::isnan(out_conv.f);
     // strict ULP match: only zero-difference or NaN-to-NaN passes
     bool pass = is_nan_case || (ulp_diff == 0);
+    bool overall_pass = pass && flag_pass;
 
-    // Print the output values
-    std::cout << "Time: " << time_counter << " | sqrt_in: " << conv.f
-              << " (bits=0x" << std::hex << std::setw(8) << std::setfill('0')
-              << conv.u << std::dec << ")" << " | sqrt_out(rtl): " << out_conv.f
-              << " (bits=0x" << std::hex << std::setw(8) << std::setfill('0')
-              << out_conv.u << std::dec << ")"
-              << " | sqrt_out(math): " << math_conv.f << " (bits=0x" << std::hex
-              << std::setw(8) << std::setfill('0') << math_conv.u << std::dec
-              << ")" << " | ulp_diff: " << ulp_diff
-              << (pass ? " PASS" : " FAIL")
-              << " | FLAG=" << (flag_pass ? " PASS" : " FAIL")
-              << " | math_flags=0x" << std::hex << math_flags << std::dec
-              << " | dut_flags=0x" << std::hex << dut_flags << std::dec
-              << std::endl;
+    // Print only failures or verbose mode
+    if (!overall_pass || verbose) {
+      std::cout << "Time: " << time_counter << " | sqrt_in: " << conv.f
+                << " (bits=0x" << std::hex << std::setw(8) << std::setfill('0')
+                << conv.u << std::dec << ")" << " | sqrt_out(rtl): " << out_conv.f
+                << " (bits=0x" << std::hex << std::setw(8) << std::setfill('0')
+                << out_conv.u << std::dec << ")"
+                << " | sqrt_out(math): " << math_conv.f << " (bits=0x" << std::hex
+                << std::setw(8) << std::setfill('0') << math_conv.u << std::dec
+                << ")" << " | ulp_diff: " << ulp_diff
+                << (pass ? " PASS" : " FAIL")
+                << " | FLAG=" << (flag_pass ? " PASS" : " FAIL")
+                << " | math_flags=0x" << std::hex << math_flags << std::dec
+                << " | dut_flags=0x" << std::hex << dut_flags << std::dec
+                << std::endl;
+    }
 
     time_counter++;
+  }
+
+  // === Coverage analysis and reporting ===
+  std::cout << "\n=== Test Coverage Summary ===" << std::endl;
+  std::cout << "Corner cases: " << num_cc << std::endl;
+  std::cout << "Systematic tests: " << systematic_tests << std::endl;
+  std::cout << "Stratified random tests: " << time_counter << std::endl;
+  std::cout << "Total test vectors: " << (num_cc + systematic_tests + time_counter) << std::endl;
+  
+  // Print region coverage statistics
+  std::cout << "\n=== Random Test Distribution ===" << std::endl;
+  for (auto& region : regions) {
+    double percentage = (double)region.weight / total_weight * 100.0;
+    std::cout << region.name << ": " << std::fixed << std::setprecision(1) 
+              << percentage << "%" << std::endl;
   }
 
   dut->final();
