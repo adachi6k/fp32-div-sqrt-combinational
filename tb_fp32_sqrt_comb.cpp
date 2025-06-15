@@ -27,16 +27,99 @@ int main(int argc, char **argv) {
       uint32_t u;
     } conv_cc, out_cc, math_cc;
     static const uint32_t corner_vals[] = {
-        0x00000000, // +0
-        0x80000000, // -0
-        0x3f800000, // 1.0
-        0x7f800000, // +inf
-        0xff800000, // -inf
-        0x7fc00000, // qNaN
-        0x7fa00000, // sNaN
-        0x00000001, // min subnormal
+        // === Basic special values ===
+        0x00000000, // +0 -> +0 (exact)
+        0x80000000, // -0 -> -0 (exact)
+        0x3f800000, // 1.0 -> 1.0 (exact)
+        0x7f800000, // +inf -> +inf
+        0xff800000, // -inf -> NaN (invalid)
+        0x7fc00000, // qNaN -> qNaN
+        0x7fa00000, // sNaN -> qNaN (invalid)
+        0xbf800000, // -1.0 -> NaN (invalid)
+        0x80000001, // -min_subnormal -> NaN (invalid)
+        0x80800000, // -min_normal -> NaN (invalid)
+        0xff7fffff, // -max_finite -> NaN (invalid)
+        
+        // === Subnormal boundaries ===
+        0x00000001, // min subnormal -> very small
+        0x00000002, // 2*min subnormal
+        0x00000004, // 4*min subnormal  
+        0x00000100, // medium subnormal
+        0x007fffff, // max subnormal
         0x00800000, // min normal
-        0x7f7fffff, // max finite
+        0x00800001, // just above min normal
+        0x00800100, // slightly above min normal
+        
+        // === Perfect squares ===
+        0x40000000, // 2.0 -> sqrt(2) ≈ 1.414... (inexact)
+        0x40800000, // 4.0 -> 2.0 (exact)
+        0x41100000, // 9.0 -> 3.0 (exact)
+        0x41800000, // 16.0 -> 4.0 (exact)
+        0x42480000, // 50.0 -> sqrt(50) ≈ 7.071... (inexact)
+        0x42c80000, // 100.0 -> 10.0 (exact)
+        0x447a0000, // 1000.0 -> sqrt(1000) ≈ 31.622... (inexact)
+        0x461c4000, // 10000.0 -> 100.0 (exact)
+        0x4b000000, // 2^23 -> sqrt(2^23) = 2^11.5 (inexact)
+        0x4c000000, // 2^24 -> 2^12 = 4096.0 (exact)
+        
+        // === Powers of 2 (should be exact or simple) ===
+        0x3e800000, // 0.25 -> 0.5 (exact)
+        0x3f000000, // 0.5 -> sqrt(0.5) ≈ 0.707... (inexact)
+        0x3f800000, // 1.0 -> 1.0 (exact)
+        0x40000000, // 2.0 -> sqrt(2) ≈ 1.414... (inexact)
+        0x40800000, // 4.0 -> 2.0 (exact)
+        0x41000000, // 8.0 -> sqrt(8) ≈ 2.828... (inexact)
+        0x41800000, // 16.0 -> 4.0 (exact)
+        0x42000000, // 32.0 -> sqrt(32) ≈ 5.656... (inexact)
+        
+        // === Boundary values ===
+        0x7f7fffff, // max finite -> very large result
+        0x3f7fffff, // just below 1.0
+        0x3f800001, // just above 1.0
+        0x007fffff, // max subnormal
+        0x00800000, // min normal
+        0x34000000, // small normal value
+        0x7f000000, // large value near overflow
+        
+        // === Rounding-critical values ===
+        0x3f490fdb, // π/2 ≈ 1.5708 -> sqrt(π/2) (inexact)
+        0x40490fdb, // π ≈ 3.14159 -> sqrt(π) (inexact)
+        0x402df854, // e ≈ 2.71828 -> sqrt(e) (inexact)
+        0x40c90fdb, // 2π ≈ 6.28318 -> sqrt(2π) (inexact)
+        0x3eaaaaab, // 1/3 ≈ 0.333... -> sqrt(1/3) (inexact)
+        0x3f2aaaab, // 2/3 ≈ 0.666... -> sqrt(2/3) (inexact)
+        
+        // === Tie-to-even rounding cases ===
+        0x3f800100, // slightly above 1.0 (tie case potential)
+        0x3f800200, // slightly above 1.0 (tie case potential)
+        0x3f800300, // slightly above 1.0 (tie case potential)
+        0x40000100, // slightly above 2.0 (tie case potential)
+        0x40000200, // slightly above 2.0 (tie case potential)
+        
+        // === Algorithm stress tests ===
+        0x33800000, // very small normal (stress subnormal output)
+        0x4f800000, // large value (stress normalization)
+        0x70000000, // very large (near overflow boundary)
+        0x0f800000, // small value (many leading zeros)
+        0x08000000, // very small (extreme subnormal input)
+        
+        // === Square root algorithm edge cases ===
+        0x3f400000, // 0.75 -> sqrt(0.75) ≈ 0.866... (test quotient selection)
+        0x3fc00000, // 1.5 -> sqrt(1.5) ≈ 1.224... (test quotient selection)
+        0x40200000, // 2.5 -> sqrt(2.5) ≈ 1.581... (test quotient selection)
+        0x40600000, // 3.5 -> sqrt(3.5) ≈ 1.870... (test quotient selection)
+        0x40a00000, // 5.0 -> sqrt(5) ≈ 2.236... (test quotient selection)
+        0x40e00000, // 7.0 -> sqrt(7) ≈ 2.645... (test quotient selection)
+        
+        // === Guard/round/sticky boundary tests ===
+        0x3f800001, // epsilon above 1.0 -> test guard bit
+        0x3f800003, // 3*epsilon above 1.0 -> test round bit
+        0x3f800007, // 7*epsilon above 1.0 -> test sticky bit
+        0x3f80000f, // 15*epsilon above 1.0 -> multiple sticky bits
+        0x40000001, // epsilon above 2.0 -> test guard bit
+        0x40000003, // 3*epsilon above 2.0 -> test round bit
+        
+        // === Previously observed failure cases ===
         0x40e4006e, // 7.12505 (observed failure)
         0x016f609c, // 4.39667e-38 (observed failure)
         0x2812c1b1, // 8.14663e-15 (observed failure)
@@ -44,7 +127,6 @@ int main(int argc, char **argv) {
         0x1ab82050, // 7.61528e-23 (observed failure)
         0x59042172, // 2.32447e+15 (observed failure)
         0x321bbcdd, // 9.06513e-09 (observed failure)
-        // Additional random failure cases
         0x36a9405f, // 5.04409e-06
         0x3fab6860, // 1.33912
         0x72cb1062, // 8.04419e+30
@@ -55,12 +137,36 @@ int main(int argc, char **argv) {
         0x01cdf635, // 7.56584e-38
         0x4b975f95, // 1.98408e+07
         0x3b2c6f35, // 0.00263114
-        0x3f800001, // just above 1.0 (round-nearest)
-        0x4b000000, // 2^23 (exact int)
-        0x00800001, // just above min normal
-        0x00000002, // small subnormal
-        0x3f000000, // 0.5 (exact)
-        0x3e800000  // 0.25 (exact)
+        
+        // === Square root of small fractions ===
+        0x3d800000, // 0.0625 -> 0.25 (exact)
+        0x3e000000, // 0.125 -> sqrt(0.125) ≈ 0.353... (inexact)
+        0x3e800000, // 0.25 -> 0.5 (exact)
+        0x3ec00000, // 0.375 -> sqrt(0.375) ≈ 0.612... (inexact)
+        0x3f000000, // 0.5 -> sqrt(0.5) ≈ 0.707... (inexact)
+        
+        // === Underflow boundary tests ===
+        0x00000010, // small subnormal -> extreme underflow result
+        0x00001000, // medium subnormal
+        0x00010000, // larger subnormal
+        0x00100000, // near-normal subnormal
+        0x007f0000, // large subnormal
+        
+        // === Iterator convergence edge cases ===
+        0x7f000000, // large input (test convergence speed)
+        0x01000000, // tiny input (test convergence accuracy)
+        0x7e000000, // near-overflow input
+        0x02000000, // small input requiring many iterations
+        
+        // === Mantissa bit patterns that stress algorithm ===
+        0x3f800000, // 1.0 (mantissa = 0)
+        0x3fc00000, // 1.5 (mantissa = 0x400000)
+        0x3fe00000, // 1.75 (mantissa = 0x600000)
+        0x3ff00000, // 1.875 (mantissa = 0x700000)
+        0x3ff80000, // 1.9375 (mantissa = 0x780000)
+        0x3ffc0000, // 1.96875 (mantissa = 0x7c0000)
+        0x3ffe0000, // 1.984375 (mantissa = 0x7e0000)
+        0x3fff0000, // 1.9921875 (mantissa = 0x7f0000)
     };
     int num_cc = sizeof(corner_vals) / sizeof(corner_vals[0]);
     for (int i = 0; i < num_cc; ++i) {

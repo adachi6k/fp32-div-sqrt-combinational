@@ -32,34 +32,108 @@ int main(int argc, char **argv) {
     static const struct {
       uint32_t a, b;
     } corner_cases[] = {
-        {0x00000000, 0x00000000}, // 0/0
-        {0x00000000, 0x3f800000}, // 0/1
-        {0x80000000, 0x3f800000}, // -0/1
-        {0x3f800000, 0x00000000}, // 1/0
-        {0x7f800000, 0x3f800000}, // inf/1
-        {0x7f800000, 0x7f800000}, // inf/inf
-        {0x3f800000, 0x7f800000}, // 1/inf
-        {0x7fc00000, 0x3f800000}, // qNaN/1
-        {0x7fa00000, 0x3f800000}, // sNaN/1
-        {0x00000001, 0x00000001}, // min subnormal/min subnormal
-        {0x00800000, 0x00800000}, // min normal/min normal
-        {0x7f7fffff, 0x3f800000}, // max finite/1
-        {0x3781fd3f, 0xf8480000}  // 1.54959e-05 / -1.62259e+34 (observed underflow/inexact mismatch)
-        ,{0x3f800000, 0x40400000}  // 1.0 / 3.0 (rounding)
-        ,{0x3f800000, 0x41200000}  // 1.0 / 10.0 (rounding)
-        ,{0x00800000, 0x40000000}  // min normal / 2.0 (gradual underflow)
-        ,{0x00000001, 0x3f800000}  // min subnormal / 1.0 (exact)
-        ,{0x3f800000, 0x3f800000}  // 1.0 / 1.0 (exact)
-        ,{0x40400000, 0x40000000}  // 3.0 / 2.0 (exact)
-        ,{0xfc1f0fde, 0xbbc20685}   // -3.30359e+36 / -0.00592119 (overflow mismatch)
-        ,{0xaacf58b8, 0xeae1320a}   // -3.68321e-13 / -1.36122e+26 (subnormal rounding mismatch)
-        ,{0x96042d06, 0x5d042d06}   // -1.06771e-25 / 5.95267e+17
-        ,{0x9be34bb1, 0xe0988600}   // -3.76029e-22 / -8.79238e+19
-        ,{0x0f8746fe, 0x514c0000},  // 1.33394e-29 / 5.47608e+10
-        {0x920c6be1, 0x517da98a},  // -4.43092e-28 / 6.80919e+10
-        {0x057e2068, 0xc4b49df2},  // 1.19490e-35 / -1444.94
-        {0xa8ec1495, 0x68a45fad},  // -2.62102e-14 / 6.20986e+24
-        {0x325cd2c3, 0xf6209948}   // 1.28536e-08 / -8.14332e+32 (exact subnormal, no flags)
+        // === Basic special values ===
+        {0x00000000, 0x00000000}, // 0/0 -> NaN (invalid)
+        {0x00000000, 0x3f800000}, // 0/1 -> 0
+        {0x80000000, 0x3f800000}, // -0/1 -> -0
+        {0x3f800000, 0x00000000}, // 1/0 -> inf (divzero)
+        {0x3f800000, 0x80000000}, // 1/-0 -> -inf (divzero)
+        {0x7f800000, 0x3f800000}, // inf/1 -> inf
+        {0xff800000, 0x3f800000}, // -inf/1 -> -inf
+        {0x7f800000, 0x7f800000}, // inf/inf -> NaN (invalid)
+        {0x7f800000, 0xff800000}, // inf/-inf -> NaN (invalid)
+        {0x3f800000, 0x7f800000}, // 1/inf -> 0
+        {0x3f800000, 0xff800000}, // 1/-inf -> -0
+        {0x7fc00000, 0x3f800000}, // qNaN/1 -> qNaN
+        {0x7fa00000, 0x3f800000}, // sNaN/1 -> qNaN (invalid)
+        {0x3f800000, 0x7fc00000}, // 1/qNaN -> qNaN
+        {0x3f800000, 0x7fa00000}, // 1/sNaN -> qNaN (invalid)
+        
+        // === Subnormal boundaries ===
+        {0x00000001, 0x00000001}, // min subnormal/min subnormal -> 1.0
+        {0x00000001, 0x3f800000}, // min subnormal/1.0 -> min subnormal
+        {0x007fffff, 0x3f800000}, // max subnormal/1.0 -> max subnormal
+        {0x00800000, 0x00800000}, // min normal/min normal -> 1.0
+        {0x00800000, 0x40000000}, // min normal/2.0 -> gradual underflow
+        {0x00800001, 0x40000000}, // slightly above min normal/2.0
+        {0x007fffff, 0x40000000}, // max subnormal/2.0
+        
+        // === Overflow boundaries ===
+        {0x7f7fffff, 0x3f800000}, // max finite/1 -> max finite
+        {0x7f7fffff, 0x3f000000}, // max finite/0.5 -> inf (overflow)
+        {0x7f000000, 0x3f000000}, // large/0.5 -> overflow
+        {0x7e800000, 0x3e800000}, // boundary overflow test
+        
+        // === Exact divisions ===
+        {0x3f800000, 0x3f800000}, // 1.0/1.0 -> 1.0 (exact)
+        {0x40000000, 0x40000000}, // 2.0/2.0 -> 1.0 (exact)
+        {0x40400000, 0x40000000}, // 3.0/2.0 -> 1.5 (exact)
+        {0x40800000, 0x40000000}, // 4.0/2.0 -> 2.0 (exact)
+        {0x41200000, 0x40800000}, // 10.0/4.0 -> 2.5 (exact)
+        {0x42c80000, 0x41200000}, // 100.0/10.0 -> 10.0 (exact)
+        
+        // === Rounding-critical divisions ===
+        {0x3f800000, 0x40400000}, // 1.0/3.0 -> 0.333... (round to nearest)
+        {0x40000000, 0x40400000}, // 2.0/3.0 -> 0.666... (round to nearest)
+        {0x3f800000, 0x41200000}, // 1.0/10.0 -> 0.1 (rounding)
+        {0x3f800000, 0x40e00000}, // 1.0/7.0 -> 0.142857... (rounding)
+        {0x41200000, 0x40400000}, // 10.0/3.0 -> 3.333... (rounding)
+        
+        // === Tie-to-even rounding cases ===
+        {0x40400000, 0x48000000}, // 3.0/32768.0 -> tie case
+        {0x40a00000, 0x48800000}, // 5.0/65536.0 -> tie case
+        {0x3f800001, 0x48000000}, // slightly above 1.0/32768.0
+        {0x3f7fffff, 0x48000000}, // slightly below 1.0/32768.0
+        
+        // === Leading zero normalization edge cases ===
+        {0x3f800000, 0x4f800000}, // 1.0/very_large -> many leading zeros in quotient
+        {0x3f800000, 0x70000000}, // 1.0/extremely_large -> edge of subnormal
+        {0x38800000, 0x7f000000}, // small/large -> deep subnormal
+        {0x08000000, 0x4f800000}, // very_small/large -> deep underflow
+        
+        // === Sticky bit edge cases ===
+        {0x40000001, 0x40400000}, // 2.0000001/3.0 -> sticky bit test
+        {0x40400001, 0x40000000}, // 3.0000001/2.0 -> sticky bit test
+        {0x7f7ffffe, 0x40000000}, // near-max/2.0 -> sticky preservation
+        
+        // === Sign combinations ===
+        {0x80000000, 0x80000000}, // -0/-0 -> NaN (invalid)
+        {0xbf800000, 0x3f800000}, // -1.0/1.0 -> -1.0
+        {0x3f800000, 0xbf800000}, // 1.0/-1.0 -> -1.0
+        {0xbf800000, 0xbf800000}, // -1.0/-1.0 -> 1.0
+        {0xff800000, 0x80000000}, // -inf/-0 -> inf (divzero)
+        {0x7f800000, 0x80000000}, // inf/-0 -> -inf (divzero)
+        
+        // === Previously observed failure cases ===
+        {0x3781fd3f, 0xf8480000}, // 1.54959e-05/-1.62259e+34 (underflow)
+        {0xaacf58b8, 0xeae1320a}, // -3.68321e-13/-1.36122e+26 (subnormal)
+        {0x96042d06, 0x5d042d06}, // -1.06771e-25/5.95267e+17
+        {0x9be34bb1, 0xe0988600}, // -3.76029e-22/-8.79238e+19
+        {0x0f8746fe, 0x514c0000}, // 1.33394e-29/5.47608e+10
+        {0x920c6be1, 0x517da98a}, // -4.43092e-28/6.80919e+10
+        {0x057e2068, 0xc4b49df2}, // 1.19490e-35/-1444.94
+        {0xa8ec1495, 0x68a45fad}, // -2.62102e-14/6.20986e+24
+        {0x325cd2c3, 0xf6209948}, // 1.28536e-08/-8.14332e+32 (exact subnormal)
+        
+        // === Algorithm stress tests ===
+        {0x34000000, 0x7f7fffff}, // small/max -> extreme underflow
+        {0x7f7fffff, 0x34000000}, // max/small -> extreme overflow
+        {0x00800000, 0x7f7fffff}, // min_normal/max -> extreme underflow
+        {0x7f7fffff, 0x00800000}, // max/min_normal -> extreme overflow
+        {0x00000001, 0x7f7fffff}, // min_subnormal/max -> extreme underflow
+        {0x7f7fffff, 0x00000001}, // max/min_subnormal -> extreme overflow
+        
+        // === Quotient normalization edge cases ===
+        {0x3f000000, 0x3f800000}, // 0.5/1.0 -> 0.5 (no normalization)
+        {0x3e800000, 0x3f800000}, // 0.25/1.0 -> 0.25 (1 bit normalization)
+        {0x3e000000, 0x3f800000}, // 0.125/1.0 -> 0.125 (2 bit normalization)
+        {0x3d800000, 0x3f800000}, // 0.0625/1.0 -> 0.0625 (3 bit normalization)
+        
+        // === Guard/round/sticky boundary tests ===
+        {0x40000003, 0x40400000}, // guard bit boundary
+        {0x40000005, 0x40400000}, // round bit boundary  
+        {0x40000007, 0x40400000}, // sticky bit boundary
+        {0x4000000f, 0x40400000}, // multiple sticky bits
     };
     int num_cc = sizeof(corner_cases) / sizeof(corner_cases[0]);
     for (int i = 0; i < num_cc; ++i) {
