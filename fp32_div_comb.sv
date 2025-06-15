@@ -297,9 +297,7 @@ module fp32_div_comb (
          sticky_s = |frac_s[24:0];
          // subnormal result: round half-up on guard bit
          round_up_s    = guard_s;
-         /* verilator lint_off WIDTHEXPAND */
          mant_rounded  = mant_res + {23'd0, round_up_s};
-         /* verilator lint_on WIDTHEXPAND */
          // exceptions if any bits lost
          exc_inexact   = guard_s | round_s | sticky_s;
          exc_underflow = exc_inexact;
