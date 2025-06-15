@@ -281,40 +281,51 @@ module fp32_div_comb (
         exc_inexact  = 1'b1;
         y = {sign_z, 8'hff, 23'd0};
       end else if (exp_sum <= -10'sd24) begin
-        // underflow beyond subnormal range -> flush to zero
-        exc_underflow = 1'b1;
-        exc_inexact = 1'b1;
-        y = {sign_z, 8'd0, 23'd0};
-      end else if (exp_sum <= 10'sd0) begin
-        S = 1 - integer'(exp_sum);
-        // clamp max shift to quotient width
-        if (S > 50) S = 50;
-        // combine quotient and raw sticky for shifting
-        frac_s = ({q_norm, sticky_raw_div}) >> S;
-        // extract mantissa, guard, round, sticky
-        mant_res   = frac_s[49:27];
-        guard_s    = frac_s[26];
-        round_s    = frac_s[25];
-        sticky_s   = |frac_s[24:0];
-        // compute subnormal rounding: simplified to round on guard to match SoftFloat
-        round_up_s    = guard_s;
-        // round-to-nearest-even for subnormals: explicit 24-bit addition
-        mant_rounded  = mant_res + {23'd0, round_up_s};
-        // inexact and underflow for any subnormal result (per SoftFloat)
+        // deep underflow: flush to zero and signal underflow & inexact per SoftFloat
         exc_underflow = 1'b1;
         exc_inexact   = 1'b1;
-        // subnormal or zero with rounding
-        if (mant_res == 23'h7fffff && round_up_s)
-          // rounding carries into normal range
-          y = {
-            sign_z, 8'd1, 23'd0
-          };
-        else y = {sign_z, 8'd0, mant_rounded[22:0]};
+        y = {sign_z, 8'd0, 23'd0};
+      end else if (exp_sum <= 10'sd0) begin  // gradual underflow to subnormals
+         // gradual underflow to subnormal
+         // compute shift count for subnormals per SoftFloat: 1 - exp_sum
+         S = 1 - integer'(exp_sum);
+         if (S > 50) S = 50;
+         frac_s   = ({q_norm, sticky_raw_div}) >> S;
+         mant_res = frac_s[49:27];
+         guard_s  = frac_s[26];
+         round_s  = frac_s[25];
+         sticky_s = |frac_s[24:0];
+         // subnormal result: round half-up on guard bit
+         round_up_s    = guard_s;
+         /* verilator lint_off WIDTHEXPAND */
+         mant_rounded  = mant_res + {23'd0, round_up_s};
+         /* verilator lint_on WIDTHEXPAND */
+         // exceptions if any bits lost
+         exc_inexact   = guard_s | round_s | sticky_s;
+         exc_underflow = exc_inexact;
+         // select result (normalize if carry into normal range)
+         if (mant_rounded[23]) begin
+           y = {sign_z, 8'd1, 23'd0};
+         end else begin
+           y = {sign_z, 8'd0, mant_rounded[22:0]};
+         end
       end else begin
         exp_z = exp_sum[7:0];
         // inexact if any rounding bits set
         exc_inexact = guard_div || round_div || sticky_div;
+        // underflow if result subnormal after rounding
+        if (exp_z == 8'd0) exc_underflow = 1'b1;
         y = {sign_z, exp_z, mant_rnd_div[22:0]};
+      end
+    end
+    // Post-process: ensure any subnormal result has correct flags
+    if (!exc_invalid && !exc_divzero && !exc_overflow && y[30:23] == 8'd0) begin
+      // Only signal underflow/inexact for subnormals if there was actual rounding
+      // Check if any rounding occurred during computation
+      if ((guard_div | round_div | sticky_div) || 
+          (guard_s | round_s | sticky_s)) begin
+        exc_underflow = 1'b1;
+        exc_inexact   = 1'b1;
       end
     end
     // reference unused signals to suppress lint warnings

@@ -53,6 +53,13 @@ int main(int argc, char **argv) {
         ,{0x40400000, 0x40000000}  // 3.0 / 2.0 (exact)
         ,{0xfc1f0fde, 0xbbc20685}   // -3.30359e+36 / -0.00592119 (overflow mismatch)
         ,{0xaacf58b8, 0xeae1320a}   // -3.68321e-13 / -1.36122e+26 (subnormal rounding mismatch)
+        ,{0x96042d06, 0x5d042d06}   // -1.06771e-25 / 5.95267e+17
+        ,{0x9be34bb1, 0xe0988600}   // -3.76029e-22 / -8.79238e+19
+        ,{0x0f8746fe, 0x514c0000},  // 1.33394e-29 / 5.47608e+10
+        {0x920c6be1, 0x517da98a},  // -4.43092e-28 / 6.80919e+10
+        {0x057e2068, 0xc4b49df2},  // 1.19490e-35 / -1444.94
+        {0xa8ec1495, 0x68a45fad},  // -2.62102e-14 / 6.20986e+24
+        {0x325cd2c3, 0xf6209948}   // 1.28536e-08 / -8.14332e+32 (exact subnormal, no flags)
     };
     int num_cc = sizeof(corner_cases) / sizeof(corner_cases[0]);
     for (int i = 0; i < num_cc; ++i) {
@@ -161,6 +168,7 @@ int main(int argc, char **argv) {
 
     // treat NaN-to-NaN as passing
     bool is_nan_case = std::isnan(math_conv.f) && std::isnan(out_conv.f);
+    // strict match: only exact or NaN-to-NaN passes
     bool pass = is_nan_case || (ulp_diff == 0);
     bool flag_pass = (dut_flags == math_flags);
 
