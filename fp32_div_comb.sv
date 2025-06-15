@@ -8,18 +8,32 @@ module fp32_div_comb (
     output logic        exc_overflow,      // IEEE-754 exception: overflow
     output logic        exc_underflow,     // IEEE-754 exception: underflow
     output logic        exc_inexact,       // IEEE-754 exception: inexact result
-    output logic [31:0] y,                 // result
-    // debug signals
-    output logic [50:0] dbg_raw_div_full,  // full sticky + quotient
-    output logic [24:0] dbg_q25,
-    output logic [ 5:0] dbg_lz_q,
-    output logic [49:0] dbg_q_norm,
-    output logic [23:0] dbg_q_div,
-    output logic [24:0] dbg_m,
-    output logic        dbg_guard_div,
-    output logic        dbg_sticky_div,
-    output logic        round_up
+    output logic [31:0] y                  // result
 );
+
+  // debug signals
+  logic [50:0] dbg_raw_div_full   /*verilator public_flat*/;
+  logic [24:0] dbg_q25            /*verilator public_flat*/;
+  logic [ 5:0] dbg_lz_q           /*verilator public_flat*/;
+  logic [49:0] dbg_q_norm         /*verilator public_flat*/;
+  logic [23:0] dbg_q_div          /*verilator public_flat*/;
+  logic [24:0] dbg_m              /*verilator public_flat*/;
+  logic        dbg_guard_div      /*verilator public_flat*/;
+  logic        dbg_sticky_div     /*verilator public_flat*/;
+  logic        round_up           /*verilator public_flat*/;
+
+  logic        dbg_unused = &{
+			      dbg_raw_div_full,
+			      dbg_q25,
+			      dbg_lz_q,
+			      dbg_q_norm,
+			      dbg_q_div,
+			      dbg_m,
+			      dbg_guard_div,
+   			      dbg_sticky_div,
+			      round_up
+			      };
+   
 
   // unpack
   logic sign_a, sign_b, sign_z;
@@ -320,7 +334,7 @@ module fp32_div_comb (
     if (!exc_invalid && !exc_divzero && !exc_overflow && y[30:23] == 8'd0) begin
       // Only signal underflow/inexact for subnormals if there was actual rounding
       // Check if any rounding occurred during computation
-      if ((guard_div | round_div | sticky_div) || 
+      if ((guard_div | round_div | sticky_div) ||
           (guard_s | round_s | sticky_s)) begin
         exc_underflow = 1'b1;
         exc_inexact   = 1'b1;

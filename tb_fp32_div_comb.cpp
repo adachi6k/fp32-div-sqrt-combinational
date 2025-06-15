@@ -1,6 +1,7 @@
 // filepath: tb_fp32_div_comb.cpp
 // Self-checking C++ testbench for the combinational IEEE-754 divider
 #include "Vfp32_div_comb.h"
+#include "Vfp32_div_comb___024root.h"
 #include <cstring>
 #include <cmath>
 #include <cstdint>
@@ -364,20 +365,20 @@ int main(int argc, char **argv) {
                 << (pass ? " PASS" : " FAIL")
                 // debug internals
                 << " | dbg_q_div=0x" << std::hex << std::setw(6)
-                << std::setfill('0') << dut->dbg_q_div << std::dec
-                << " dbg_guard_div=" << static_cast<int>(dut->dbg_guard_div)
-                << " dbg_sticky_div=" << static_cast<int>(dut->dbg_sticky_div)
+                << std::setfill('0') << dut->rootp->fp32_div_comb__DOT__dbg_q_div << std::dec
+                << " dbg_guard_div=" << static_cast<int>(dut->rootp->fp32_div_comb__DOT__dbg_guard_div)
+                << " dbg_sticky_div=" << static_cast<int>(dut->rootp->fp32_div_comb__DOT__dbg_sticky_div)
                 << " dbg_raw_div_full=0x" << std::hex << std::setw(14)
                 << std::setfill('0')
-                << static_cast<unsigned long long>(dut->dbg_raw_div_full)
+                << static_cast<unsigned long long>(dut->rootp->fp32_div_comb__DOT__dbg_raw_div_full)
                 << std::dec << " dbg_q25=0x" << std::hex << std::setw(7)
-                << std::setfill('0') << dut->dbg_q25 << std::dec << " dbg_m=0x"
-                << std::hex << std::setw(7) << std::setfill('0') << dut->dbg_m
+                << std::setfill('0') << dut->rootp->fp32_div_comb__DOT__dbg_q25 << std::dec << " dbg_m=0x"
+                << std::hex << std::setw(7) << std::setfill('0') << dut->rootp->fp32_div_comb__DOT__dbg_m
                 << std::dec << " dbg_lz_q=" << std::dec
-                << static_cast<int>(dut->dbg_lz_q) << " dbg_q_norm=0x" << std::hex
+                << static_cast<int>(dut->rootp->fp32_div_comb__DOT__dbg_lz_q) << " dbg_q_norm=0x" << std::hex
                 << std::setw(13) << std::setfill('0')
-                << static_cast<unsigned long long>(dut->dbg_q_norm) << std::dec
-                << " round_up=" << static_cast<int>(dut->round_up)
+                << static_cast<unsigned long long>(dut->rootp->fp32_div_comb__DOT__dbg_q_norm) << std::dec
+                << " round_up=" << static_cast<int>(dut->rootp->fp32_div_comb__DOT__round_up)
                 << " |FLAG=" << (flag_pass ? " PASS" : " FAIL")
                 << " | math_flags=0x" << std::hex << math_flags << std::dec
                 << " | dut_flags=0x" << std::hex << dut_flags << std::dec
