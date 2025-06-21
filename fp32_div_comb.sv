@@ -1,4 +1,3 @@
-// filepath: fp32_div_comb.sv
 // Combinational IEEE754 single-precision divider
 module fp32_div_comb (
     input  logic [31:0] a,                 // dividend
@@ -21,19 +20,18 @@ module fp32_div_comb (
   logic        dbg_guard_div      /*verilator public_flat*/;
   logic        dbg_sticky_div     /*verilator public_flat*/;
   logic        round_up           /*verilator public_flat*/;
-
-  logic        dbg_unused = &{
-			      dbg_raw_div_full,
-			      dbg_q25,
-			      dbg_lz_q,
-			      dbg_q_norm,
-			      dbg_q_div,
-			      dbg_m,
-			      dbg_guard_div,
-   			      dbg_sticky_div,
-			      round_up
-			      };
-   
+  // additional debug signals for subnormal processing
+  logic [50:0] dbg_frac_s         /*verilator public_flat*/;
+  logic [22:0] dbg_mant_res       /*verilator public_flat*/;
+  logic        dbg_guard_s        /*verilator public_flat*/;
+  logic        dbg_round_s        /*verilator public_flat*/;
+  logic        dbg_sticky_s       /*verilator public_flat*/;
+  logic        dbg_round_up_s     /*verilator public_flat*/;
+  logic [22:0] dbg_mant_rounded   /*verilator public_flat*/;
+  logic [9:0]  dbg_exp_sum        /*verilator public_flat*/;
+  logic [9:0]  dbg_exp_unbias     /*verilator public_flat*/;
+  logic        dbg_subnormal_path /*verilator public_flat*/;
+  logic        dbg_normal_path    /*verilator public_flat*/;
 
   // unpack
   logic sign_a, sign_b, sign_z;
@@ -89,7 +87,7 @@ module fp32_div_comb (
 
   // normalize mantissas
   logic [23:0] norm_a, norm_b;
-  logic signed [9:0] exp_unbias;
+  logic signed [9:0] exp_unbias /*verilator public*/;
   // leading zero counts for subnormals
   logic [4:0] lz_a, lz_b;
   always_comb begin
@@ -153,7 +151,7 @@ module fp32_div_comb (
 
   // rounding and normalization signals
   logic [23:0] mant_rnd_div;  // rounded mantissa
-  logic signed [9:0] exp_sum;  // biased exponent after normalization
+  logic signed [9:0] exp_sum /*verilator public_flat*/;  // biased exponent after normalization
   logic [24:0] sum_expr;  // intermediate sum for rounding carry
   logic [47:0] mant_shift;  // for subnormal result shifting
   // subnormal rounding intermediate signals
@@ -216,6 +214,18 @@ module fp32_div_comb (
     dbg_m            = '0;
     dbg_lz_q         = '0;
     dbg_q_norm       = '0;
+    // additional debug signal defaults
+    dbg_frac_s       = '0;
+    dbg_mant_res     = '0;
+    dbg_guard_s      = '0;
+    dbg_round_s      = '0;
+    dbg_sticky_s     = '0;
+    dbg_round_up_s   = '0;
+    dbg_mant_rounded = '0;
+    dbg_exp_sum      = '0;
+    dbg_exp_unbias   = '0;
+    dbg_subnormal_path = '0;
+    dbg_normal_path    = '0;
     // default exception flags
     exc_invalid      = '0;
     exc_divzero      = '0;
@@ -271,6 +281,9 @@ module fp32_div_comb (
       dbg_raw_div_full = raw_div;
       dbg_q_div        = q_div;
       dbg_guard_div    = guard_div;
+      dbg_exp_sum      = exp_sum;
+      dbg_exp_unbias   = exp_unbias;
+      dbg_normal_path  = 1'b1;
       dbg_sticky_div   = sticky_div;
       dbg_q25          = q_norm[49:25];
       // dbg_m will be assigned after computing m
@@ -299,27 +312,45 @@ module fp32_div_comb (
         exc_underflow = 1'b1;
         exc_inexact   = 1'b1;
         y = {sign_z, 8'd0, 23'd0};
-      end else if (exp_sum <= 10'sd0) begin  // gradual underflow to subnormals
+      end else if (exp_sum <= 10'sd0) begin  // gradual underflow to subnormals (exp <= 0)
          // gradual underflow to subnormal
-         // compute shift count for subnormals per SoftFloat: 1 - exp_sum
+         // compute shift count for subnormals per SoftFloat: 1 - exp_sum 
          S = 1 - integer'(exp_sum);
-         if (S > 50) S = 50;
-         frac_s   = ({q_norm, sticky_raw_div}) >> S;
-         mant_res = frac_s[49:27];
-         guard_s  = frac_s[26];
-         round_s  = frac_s[25];
-         sticky_s = |frac_s[24:0];
-         // subnormal result: round half-up on guard bit
-         round_up_s    = guard_s;
-         mant_rounded  = mant_res + {23'd0, round_up_s};
-         // exceptions if any bits lost
-         exc_inexact   = guard_s | round_s | sticky_s;
-         exc_underflow = exc_inexact;
-         // select result (normalize if carry into normal range)
-         if (mant_rounded[23]) begin
-           y = {sign_z, 8'd1, 23'd0};
+         if (S >= 51) begin
+           // Too much shift: result is zero
+           y = {sign_z, 8'd0, 23'd0};
+           exc_underflow = 1'b1;
+           exc_inexact   = 1'b1;
          end else begin
-           y = {sign_z, 8'd0, mant_rounded[22:0]};
+           // For subnormal: need to include the hidden bit in the mantissa
+           // Shift the entire 24-bit mantissa (including hidden bit)
+           frac_s   = ({q_norm, sticky_raw_div}) >> S;
+           mant_res = frac_s[49:27];  // Extract 23-bit mantissa (hidden bit becomes part of mantissa)
+           guard_s  = frac_s[26];
+           round_s  = frac_s[25];
+           sticky_s = |frac_s[24:0];
+           // subnormal result: round to nearest, ties to even (IEEE-754 compliant)
+           round_up_s    = guard_s & (round_s | sticky_s | mant_res[0]);
+           mant_rounded  = mant_res + {23'd0, round_up_s};
+           // debug outputs for subnormal processing
+           dbg_subnormal_path = 1'b1;
+           dbg_frac_s       = frac_s;
+           dbg_mant_res     = mant_res;
+           dbg_guard_s      = guard_s;
+           dbg_round_s      = round_s;
+           dbg_sticky_s     = sticky_s;
+           dbg_round_up_s   = round_up_s;
+           dbg_mant_rounded = mant_rounded[22:0];
+           dbg_subnormal_path = 1'b1;
+           // exceptions if any bits lost
+           exc_inexact   = guard_s | round_s | sticky_s;
+           exc_underflow = exc_inexact;
+           // select result (normalize if carry into normal range)
+           if (mant_rounded[23]) begin
+             y = {sign_z, 8'd1, 23'd0};
+           end else begin
+             y = {sign_z, 8'd0, mant_rounded[22:0]};
+           end
          end
       end else begin
         exp_z = exp_sum[7:0];
@@ -334,7 +365,7 @@ module fp32_div_comb (
     if (!exc_invalid && !exc_divzero && !exc_overflow && y[30:23] == 8'd0) begin
       // Only signal underflow/inexact for subnormals if there was actual rounding
       // Check if any rounding occurred during computation
-      if ((guard_div | round_div | sticky_div) ||
+      if ((guard_div | round_div | sticky_div) || 
           (guard_s | round_s | sticky_s)) begin
         exc_underflow = 1'b1;
         exc_inexact   = 1'b1;

@@ -16,7 +16,7 @@ CFLAGS    = -I$(SOFT_INCLUDE_DIR) -I$(SOFT_BUILD_DIR)
 LDFLAGS   = -L$(SOFT_BUILD_DIR) -l:softfloat.a
 
 # Targets
-.PHONY: all div sqrt clean
+.PHONY: all div sqrt debug_div clean
 all: div sqrt
 
 # Build and run fp32_div_comb testbench
@@ -28,6 +28,11 @@ div:
 sqrt:
 	$(VERILATOR) --threads 4 --top-module fp32_sqrt_comb --build --cc fp32_sqrt_comb.sv \
 		--exe tb_fp32_sqrt_comb.cpp -CFLAGS "$(CFLAGS)" -LDFLAGS "$(LDFLAGS)"
+
+# Build debug version for specific cases
+debug_div:
+	$(VERILATOR) --threads 4 --top-module fp32_div_comb --build --cc fp32_div_comb.sv \
+		--exe debug_div.cpp -CFLAGS "$(CFLAGS)" -LDFLAGS "$(LDFLAGS)"
 
 # Clean artifacts
 clean:

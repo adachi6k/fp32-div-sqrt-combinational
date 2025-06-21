@@ -220,18 +220,23 @@ int main(int argc, char **argv) {
       float32_t r_sf_cc = f32_sqrt(a_sf_cc);
       int math_flags_cc = softfloat_exceptionFlags;
       math_cc.u = r_sf_cc.v;
-      // ULP diff
-      int32_t rtl_bits_cc = static_cast<int32_t>(out_cc.u);
-      int32_t math_bits_cc = static_cast<int32_t>(math_cc.u);
-      uint32_t ulp_diff_cc = (rtl_bits_cc > math_bits_cc)
-                                 ? (rtl_bits_cc - math_bits_cc)
-                                 : (math_bits_cc - rtl_bits_cc);
+      // ULP diff - use unsigned comparison for correct handling of negative numbers
+      uint32_t ulp_diff_cc;
+      if (out_cc.u == math_cc.u) {
+        ulp_diff_cc = 0;
+      } else if ((out_cc.u ^ math_cc.u) & 0x80000000) {
+        // Different signs - handle zero crossing case
+        ulp_diff_cc = (out_cc.u & 0x7FFFFFFF) + (math_cc.u & 0x7FFFFFFF);
+      } else {
+        // Same sign - simple unsigned difference
+        ulp_diff_cc = (out_cc.u > math_cc.u) ? (out_cc.u - math_cc.u) : (math_cc.u - out_cc.u);
+      }
       // flags
       int dut_flags_cc = (dut->exc_invalid << 4) | (dut->exc_divzero << 3) |
                          (dut->exc_overflow << 2) | (dut->exc_underflow << 1) |
                          (dut->exc_inexact);
       bool is_nan_case_cc = std::isnan(math_cc.f) && std::isnan(out_cc.f);
-      bool pass_cc = is_nan_case_cc || (ulp_diff_cc <= 1);
+      bool pass_cc = is_nan_case_cc || (ulp_diff_cc == 0);
       // print only failures or verbose mode
       if (!pass_cc || verbose) {
         std::cout << "[SQRT CASE " << i << "] a=" << conv_cc.f
@@ -348,10 +353,17 @@ int main(int argc, char **argv) {
     } math_conv;
     math_conv.u = r_sf.v;
 
-    int32_t rtl_bits = static_cast<int32_t>(out_conv.u);
-    int32_t math_bits = static_cast<int32_t>(math_conv.u);
-    uint32_t ulp_diff = (rtl_bits > math_bits) ? (rtl_bits - math_bits)
-                                               : (math_bits - rtl_bits);
+    // ULP diff - use unsigned comparison for correct handling of negative numbers
+    uint32_t ulp_diff;
+    if (out_conv.u == math_conv.u) {
+      ulp_diff = 0;
+    } else if ((out_conv.u ^ math_conv.u) & 0x80000000) {
+      // Different signs - handle zero crossing case
+      ulp_diff = (out_conv.u & 0x7FFFFFFF) + (math_conv.u & 0x7FFFFFFF);
+    } else {
+      // Same sign - simple unsigned difference
+      ulp_diff = (out_conv.u > math_conv.u) ? (out_conv.u - math_conv.u) : (math_conv.u - out_conv.u);
+    }
     // collect RTL exception flags and compare
     int dut_flags = (dut->exc_invalid << 4) | (dut->exc_divzero << 3) |
                     (dut->exc_overflow << 2) | (dut->exc_underflow << 1) |

@@ -2,6 +2,7 @@
 // Self-checking C++ testbench for the combinational IEEE-754 divider
 #include "Vfp32_div_comb.h"
 #include "Vfp32_div_comb___024root.h"
+#include "Vfp32_div_comb_fp32_div_comb.h"
 #include <cstring>
 #include <cmath>
 #include <cstdint>
@@ -158,6 +159,7 @@ int main(int argc, char **argv) {
         {0x057e2068, 0xc4b49df2}, // 1.19490e-35/-1444.94
         {0xa8ec1495, 0x68a45fad}, // -2.62102e-14/6.20986e+24
         {0x325cd2c3, 0xf6209948}, // 1.28536e-08/-8.14332e+32 (exact subnormal)
+        {0x29eed5eb, 0xefbbfc00}, // 1.06064e-13/-1.16357e+29 (rounding issue: expected 0x8000028a, got 0x8000028b)
         
         // === Algorithm stress tests ===
         {0x34000000, 0x7f7fffff}, // small/max -> extreme underflow
@@ -209,22 +211,59 @@ int main(int argc, char **argv) {
         float f;
       } math_cc;
       math_cc.u = r_sf_cc.v;
-      // ULP diff
-      int32_t rtl_bits_cc = static_cast<int32_t>(out_cc.u);
-      int32_t math_bits_cc = static_cast<int32_t>(math_cc.u);
-      uint32_t ulp_diff_cc = (rtl_bits_cc > math_bits_cc)
-                                 ? (rtl_bits_cc - math_bits_cc)
-                                 : (math_bits_cc - rtl_bits_cc);
+      // ULP diff - simplified correct calculation
+      uint32_t ulp_diff_cc = 0;
+      if (!(std::isnan(out_cc.f) && std::isnan(math_cc.f))) {
+        if (out_cc.u == math_cc.u) {
+          ulp_diff_cc = 0;
+        } else if ((out_cc.u == 0x00000000 && math_cc.u == 0x80000000) ||
+                   (out_cc.u == 0x80000000 && math_cc.u == 0x00000000)) {
+          ulp_diff_cc = 0;  // +0 and -0 are equivalent
+        } else {
+          // Simple absolute difference for same-sign numbers
+          if ((out_cc.u ^ math_cc.u) & 0x80000000) {
+            // Different signs - sum the magnitudes
+            ulp_diff_cc = (out_cc.u & 0x7FFFFFFF) + (math_cc.u & 0x7FFFFFFF);
+          } else {
+            // Same sign - absolute difference
+            ulp_diff_cc = (out_cc.u > math_cc.u) ? (out_cc.u - math_cc.u) : (math_cc.u - out_cc.u);
+          }
+        }
+      }
       bool is_nan_case_cc = std::isnan(math_cc.f) && std::isnan(out_cc.f);
-      bool pass_cc = is_nan_case_cc || (ulp_diff_cc <= 1);
+      bool pass_cc = is_nan_case_cc || (ulp_diff_cc == 0);
       // print only failures or verbose mode
       if (!pass_cc || verbose) {
-        std::cout << "[CASE " << i << "] a=" << conv_a_cc.f
-                  << " b=" << conv_b_cc.f << " | rtl=" << out_cc.f
-                  << " math=" << math_cc.f << " | ulp_diff=" << ulp_diff_cc
-                  << (pass_cc ? " PASS" : " FAIL") << " | flags math=0x"
-                  << std::hex << math_flags_cc << " rtl=0x" << dut_flags_cc
-                  << std::dec << std::endl;
+        std::cout << "[CASE " << i << "] a: " << conv_a_cc.f << " (bits=0x"
+                  << std::hex << std::setw(8) << std::setfill('0') << conv_a_cc.u
+                  << std::dec << ")" << " | b: " << conv_b_cc.f << " (bits=0x"
+                  << std::hex << std::setw(8) << std::setfill('0') << conv_b_cc.u
+                  << std::dec << ")" << " | out(rtl): " << out_cc.f << " (bits=0x"
+                  << std::hex << std::setw(8) << std::setfill('0') << out_cc.u << std::dec << ")"
+                  << " | out(math): " << math_cc.f << " (bits=0x" << std::hex
+                  << std::setw(8) << std::setfill('0') << math_cc.u << std::dec << ")"
+                  << " | ulp_diff: " << ulp_diff_cc
+                  << (pass_cc ? " PASS" : " FAIL")
+                  // debug internals
+                  << " | dbg_q_div=0x" << std::hex << std::setw(6)
+                  << std::setfill('0') << dut->fp32_div_comb->dbg_q_div << std::dec
+                  << " dbg_guard_div=" << static_cast<int>(dut->fp32_div_comb->dbg_guard_div)
+                  << " dbg_sticky_div=" << static_cast<int>(dut->fp32_div_comb->dbg_sticky_div)
+                  << " dbg_raw_div_full=0x" << std::hex << std::setw(14)
+                  << std::setfill('0')
+                  << static_cast<unsigned long long>(dut->fp32_div_comb->dbg_raw_div_full)
+                  << std::dec << " dbg_q25=0x" << std::hex << std::setw(7)
+                  << std::setfill('0') << dut->fp32_div_comb->dbg_q25 << std::dec << " dbg_m=0x"
+                  << std::hex << std::setw(7) << std::setfill('0') << dut->fp32_div_comb->dbg_m
+                  << std::dec << " dbg_lz_q=" << std::dec
+                  << static_cast<int>(dut->fp32_div_comb->dbg_lz_q) << " dbg_q_norm=0x" << std::hex
+                  << std::setw(13) << std::setfill('0')
+                  << static_cast<unsigned long long>(dut->fp32_div_comb->dbg_q_norm) << std::dec
+                  << " round_up=" << static_cast<int>(dut->fp32_div_comb->round_up)
+                  << " |FLAG=" << (math_flags_cc == dut_flags_cc ? " PASS" : " FAIL")
+                  << " | math_flags=0x" << std::hex << math_flags_cc << std::dec
+                  << " | dut_flags=0x" << std::hex << dut_flags_cc << std::dec
+                  << std::endl;
       }
     }
     std::cout << "=== Corner-case tests done ===" << std::endl;
@@ -339,10 +378,25 @@ int main(int argc, char **argv) {
     } math_conv;
     math_conv.u = r_sf.v;
 
-    int32_t rtl_bits = static_cast<int32_t>(out_conv.u);
-    int32_t math_bits = static_cast<int32_t>(math_conv.u);
-    uint32_t ulp_diff = (rtl_bits > math_bits) ? (rtl_bits - math_bits)
-                                               : (math_bits - rtl_bits);
+    // ULP diff - simplified correct calculation
+    uint32_t ulp_diff = 0;
+    if (!(std::isnan(out_conv.f) && std::isnan(math_conv.f))) {
+      if (out_conv.u == math_conv.u) {
+        ulp_diff = 0;
+      } else if ((out_conv.u == 0x00000000 && math_conv.u == 0x80000000) ||
+                 (out_conv.u == 0x80000000 && math_conv.u == 0x00000000)) {
+        ulp_diff = 0;  // +0 and -0 are equivalent
+      } else {
+        // Simple absolute difference for same-sign numbers
+        if ((out_conv.u ^ math_conv.u) & 0x80000000) {
+          // Different signs - sum the magnitudes
+          ulp_diff = (out_conv.u & 0x7FFFFFFF) + (math_conv.u & 0x7FFFFFFF);
+        } else {
+          // Same sign - absolute difference
+          ulp_diff = (out_conv.u > math_conv.u) ? (out_conv.u - math_conv.u) : (math_conv.u - out_conv.u);
+        }
+      }
+    }
 
     // treat NaN-to-NaN as passing
     bool is_nan_case = std::isnan(math_conv.f) && std::isnan(out_conv.f);
@@ -365,20 +419,20 @@ int main(int argc, char **argv) {
                 << (pass ? " PASS" : " FAIL")
                 // debug internals
                 << " | dbg_q_div=0x" << std::hex << std::setw(6)
-                << std::setfill('0') << dut->rootp->fp32_div_comb__DOT__dbg_q_div << std::dec
-                << " dbg_guard_div=" << static_cast<int>(dut->rootp->fp32_div_comb__DOT__dbg_guard_div)
-                << " dbg_sticky_div=" << static_cast<int>(dut->rootp->fp32_div_comb__DOT__dbg_sticky_div)
+                << std::setfill('0') << dut->fp32_div_comb->dbg_q_div << std::dec
+                << " dbg_guard_div=" << static_cast<int>(dut->fp32_div_comb->dbg_guard_div)
+                << " dbg_sticky_div=" << static_cast<int>(dut->fp32_div_comb->dbg_sticky_div)
                 << " dbg_raw_div_full=0x" << std::hex << std::setw(14)
                 << std::setfill('0')
-                << static_cast<unsigned long long>(dut->rootp->fp32_div_comb__DOT__dbg_raw_div_full)
+                << static_cast<unsigned long long>(dut->fp32_div_comb->dbg_raw_div_full)
                 << std::dec << " dbg_q25=0x" << std::hex << std::setw(7)
-                << std::setfill('0') << dut->rootp->fp32_div_comb__DOT__dbg_q25 << std::dec << " dbg_m=0x"
-                << std::hex << std::setw(7) << std::setfill('0') << dut->rootp->fp32_div_comb__DOT__dbg_m
+                << std::setfill('0') << dut->fp32_div_comb->dbg_q25 << std::dec << " dbg_m=0x"
+                << std::hex << std::setw(7) << std::setfill('0') << dut->fp32_div_comb->dbg_m
                 << std::dec << " dbg_lz_q=" << std::dec
-                << static_cast<int>(dut->rootp->fp32_div_comb__DOT__dbg_lz_q) << " dbg_q_norm=0x" << std::hex
+                << static_cast<int>(dut->fp32_div_comb->dbg_lz_q) << " dbg_q_norm=0x" << std::hex
                 << std::setw(13) << std::setfill('0')
-                << static_cast<unsigned long long>(dut->rootp->fp32_div_comb__DOT__dbg_q_norm) << std::dec
-                << " round_up=" << static_cast<int>(dut->rootp->fp32_div_comb__DOT__round_up)
+                << static_cast<unsigned long long>(dut->fp32_div_comb->dbg_q_norm) << std::dec
+                << " round_up=" << static_cast<int>(dut->fp32_div_comb->round_up)
                 << " |FLAG=" << (flag_pass ? " PASS" : " FAIL")
                 << " | math_flags=0x" << std::hex << math_flags << std::dec
                 << " | dut_flags=0x" << std::hex << dut_flags << std::dec
