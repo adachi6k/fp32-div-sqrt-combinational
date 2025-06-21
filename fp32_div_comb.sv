@@ -328,7 +328,7 @@ module fp32_div_comb (
            mant_res = frac_s[49:27];  // Extract 23-bit mantissa (hidden bit becomes part of mantissa)
            guard_s  = frac_s[26];
            round_s  = frac_s[25];
-           sticky_s = |frac_s[24:0];
+           sticky_s = |frac_s[24:0] | sticky_raw_div;  // Include original sticky from division
            // subnormal result: round to nearest, ties to even (IEEE-754 compliant)
            round_up_s    = guard_s & (round_s | sticky_s | mant_res[0]);
            mant_rounded  = mant_res + {23'd0, round_up_s};
