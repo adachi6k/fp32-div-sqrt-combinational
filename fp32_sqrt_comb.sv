@@ -1,13 +1,53 @@
-// filepath: fp32_sqrt_comb.sv
-// Combinational IEEE754 single-precision square-root
+/*
+ * MIT License
+ * 
+ * Copyright (c) 2025 adachi6k
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ */
+
+/**
+ * @file    fp32_sqrt_comb.sv
+ * @brief   Combinational IEEE-754 Single-Precision Floating-Point Square Root
+ * @author  adachi6k
+ * @date    2025
+ * 
+ * @description
+ * This module implements a fully combinational IEEE-754 single-precision 
+ * floating-point square root unit. It supports IEEE-754 exception handling
+ * and produces accurate results for positive inputs.
+ * 
+ * Features:
+ * - IEEE-754 compliance for square root operation
+ * - Exception flags (invalid, overflow, underflow, inexact)
+ * - Round-to-nearest-even (default) rounding mode
+ * - Optimized for synthesis and timing closure
+ * 
+ * @note Resource usage: Non-restoring square root algorithm implementation
+ */
+
+// Combinational IEEE-754 Single-Precision Floating-Point Square Root
 module fp32_sqrt_comb (
-    input  logic [31:0] a,              // IEEE754 single-precision input
-    output logic [31:0] y,              // IEEE754 single-precision output (sqrt(a))
-    output logic        exc_invalid,    // IEEE-754 exception: invalid operation
-    output logic        exc_divzero,    // IEEE-754 exception: divide-by-zero (unused)
-    output logic        exc_overflow,   // IEEE-754 exception: overflow
-    output logic        exc_underflow,  // IEEE-754 exception: underflow
-    output logic        exc_inexact     // IEEE-754 exception: inexact result
+    // Input operand
+    input  logic [31:0] a,                 // input (IEEE-754 FP32)
+    
+    // IEEE-754 exception flags output
+    output logic        exc_invalid,       // invalid operation (sqrt of negative)
+    output logic        exc_divzero,       // divide-by-zero (unused for sqrt)
+    output logic        exc_overflow,      // result magnitude too large (unused for sqrt)
+    output logic        exc_underflow,     // result magnitude too small (gradual underflow)
+    output logic        exc_inexact,       // result is not exactly representable
+    
+    // Result output
+    output logic [31:0] y                  // square root (IEEE-754 FP32)
 );
 
   // Unpack input

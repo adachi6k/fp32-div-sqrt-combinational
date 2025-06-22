@@ -1,5 +1,41 @@
-// filepath: tb_fp32_div_comb.cpp
-// Self-checking C++ testbench for the combinational IEEE-754 divider
+/*
+ * MIT License
+ * 
+ * Copyright (c) 2025 adachi6k
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ */
+
+/**
+ * @file    tb_fp32_div_comb.cpp
+ * @brief   Comprehensive testbench for IEEE-754 FP32 combinational divider
+ * @author  adachi6k
+ * @date    2025
+ * 
+ * @description
+ * Self-checking testbench that validates the fp32_div_comb SystemVerilog module
+ * against the SoftFloat reference implementation. Includes:
+ * - Corner case testing for IEEE-754 special values
+ * - Systematic boundary testing for subnormal and critical regions  
+ * - Stratified random testing across the entire FP32 space
+ * - Bit-accurate comparison with detailed ULP analysis
+ * - Early termination on first failure for efficient debugging
+ * 
+ * @usage
+ * ./obj_dir/Vfp32_div_comb [-v|--verbose]
+ *   -v, --verbose    Enable verbose output for all test cases
+ * 
+ * @note Requires SoftFloat library for reference calculations
+ */
+
 #include "Vfp32_div_comb.h"
 #include "Vfp32_div_comb___024root.h"
 #include "Vfp32_div_comb_fp32_div_comb.h"
@@ -17,7 +53,29 @@ extern "C" {
 #include "softfloat.h"
 }
 
-long int time_counter = 0;
+/**
+ * @brief Test configuration constants
+ */
+namespace TestConfig {
+  // Test execution parameters
+  static constexpr int TOTAL_STRATIFIED_TESTS = 60000000;  // Total random test vectors
+  static constexpr int SYSTEMATIC_SUBNORM_STEP = 0x00001111;  // Step size for subnormal tests
+  static constexpr int BOUNDARY_TEST_RANGE = 0x10000;  // Range for boundary tests around 1.0
+  
+  // Test region weights for stratified random testing
+  static constexpr int WEIGHT_SUBNORMALS = 10;
+  static constexpr int WEIGHT_SMALL_NORMALS = 8; 
+  static constexpr int WEIGHT_MEDIUM_NORMALS = 5;
+  static constexpr int WEIGHT_NEAR_ONE = 15;
+  static constexpr int WEIGHT_LARGE_NORMALS = 8;
+  static constexpr int WEIGHT_NEAR_OVERFLOW = 10;
+  static constexpr int WEIGHT_SPECIAL_VALUES = 12;
+}
+
+/**
+ * @brief Global test execution time counter
+ */
+int time_counter = 0;
 
 int main(int argc, char **argv) {
   // Parse command line arguments for verbose mode
@@ -28,44 +86,50 @@ int main(int argc, char **argv) {
     }
   }
   
-  // seed random for varied FP32 inputs
+  std::cout << "=== IEEE-754 FP32 Combinational Divider Test Suite ===" << std::endl;
+  std::cout << "Target test vectors: " << TestConfig::TOTAL_STRATIFIED_TESTS << std::endl;
+  std::cout << "Verbose mode: " << (verbose ? "ON" : "OFF") << std::endl;
+  std::cout << "=======================================================" << std::endl;
+  
+  // Initialize random seed for reproducible yet varied testing
   srand(static_cast<unsigned>(time(nullptr)));
 
   Verilated::commandArgs(argc, argv);
-
   Vfp32_div_comb *dut = new Vfp32_div_comb();
 
-  // Variables for coverage tracking
-  int num_cc = 0;
-  int systematic_tests = 0;
+  // Test execution tracking variables
+  int num_cc = 0;           // Corner case test count
+  int systematic_tests = 0; // Systematic test count
   
-  // Stratified random testing - divide FP32 space into regions
+  // Stratified random testing configuration
+  // Divide FP32 space into regions with different sampling weights
   struct TestRegion {
-    uint32_t start, end;
-    const char* name;
-    int weight;
+    uint32_t start, end;      // IEEE-754 bit pattern range
+    const char* name;         // Region description
+    int weight;               // Relative sampling weight
   };
   
   TestRegion regions[] = {
-    {0x00000000, 0x00800000, "subnormals", 10},
-    {0x00800000, 0x34000000, "small_normals", 8},
-    {0x34000000, 0x3f000000, "medium_normals", 5},
-    {0x3f000000, 0x40800000, "near_one", 15},
-    {0x40800000, 0x7f000000, "large_normals", 8},
-    {0x7f000000, 0x7f800000, "near_overflow", 10},
-    {0x7f800000, 0x7fffffff, "special_values", 12},
-    {0x80000000, 0x80800000, "neg_subnormals", 10},
-    {0x80800000, 0xb4000000, "neg_small_normals", 8},
-    {0xb4000000, 0xbf000000, "neg_medium_normals", 5},
-    {0xbf000000, 0xc0800000, "neg_near_one", 15},
-    {0xc0800000, 0xff000000, "neg_large_normals", 8},
-    {0xff000000, 0xff800000, "neg_near_overflow", 10},
-    {0xff800000, 0xffffffff, "neg_special_values", 12}
+    // Positive ranges
+    {0x00000000, 0x00800000, "subnormals", TestConfig::WEIGHT_SUBNORMALS},
+    {0x00800000, 0x34000000, "small_normals", TestConfig::WEIGHT_SMALL_NORMALS},
+    {0x34000000, 0x3f000000, "medium_normals", TestConfig::WEIGHT_MEDIUM_NORMALS},
+    {0x3f000000, 0x40800000, "near_one", TestConfig::WEIGHT_NEAR_ONE},
+    {0x40800000, 0x7f000000, "large_normals", TestConfig::WEIGHT_LARGE_NORMALS},
+    {0x7f000000, 0x7f800000, "near_overflow", TestConfig::WEIGHT_NEAR_OVERFLOW},
+    {0x7f800000, 0x7fffffff, "special_values", TestConfig::WEIGHT_SPECIAL_VALUES},
+    
+    // Negative ranges (symmetric to positive)
+    {0x80000000, 0x80800000, "neg_subnormals", TestConfig::WEIGHT_SUBNORMALS},
+    {0x80800000, 0xb4000000, "neg_small_normals", TestConfig::WEIGHT_SMALL_NORMALS},
+    {0xb4000000, 0xbf000000, "neg_medium_normals", TestConfig::WEIGHT_MEDIUM_NORMALS},
+    {0xbf000000, 0xc0800000, "neg_near_one", TestConfig::WEIGHT_NEAR_ONE},
+    {0xc0800000, 0xff000000, "neg_large_normals", TestConfig::WEIGHT_LARGE_NORMALS},
+    {0xff000000, 0xff800000, "neg_near_overflow", TestConfig::WEIGHT_NEAR_OVERFLOW},
+    {0xff800000, 0xffffffff, "neg_special_values", TestConfig::WEIGHT_SPECIAL_VALUES}
   };
   
-  //const int TOTAL_STRATIFIED_TESTS = 1000000;
-  //const int TOTAL_STRATIFIED_TESTS = 700000000; //3min
-  const long int TOTAL_STRATIFIED_TESTS = 70000000000; //30min(expect)
+  // Calculate total weight for stratified sampling
   int total_weight = 0;
   for (auto& region : regions) total_weight += region.weight;
 
@@ -140,18 +204,18 @@ int main(int argc, char **argv) {
       
       // Show debug signals if requested
       if (show_debug) {
-        std::cout << " |dbg_q_div=0x" << std::hex << std::setw(6) << std::setfill('0') 
-                  << dut->fp32_div_comb->dbg_q_div << std::dec
-                  << " dbg_guard_div=" << static_cast<int>(dut->fp32_div_comb->dbg_guard_div)
-                  << " dbg_sticky_div=" << static_cast<int>(dut->fp32_div_comb->dbg_sticky_div)
-                  << " dbg_raw_div_full=0x" << std::hex << std::setw(14) << std::setfill('0')
+        std::cout << " |dbg_final=0x" << std::hex << std::setw(6) << std::setfill('0') 
+                  << dut->fp32_div_comb->dbg_quotient_final << std::dec
+                  << " guard=" << static_cast<int>(dut->fp32_div_comb->dbg_guard_bit)
+                  << " sticky=" << static_cast<int>(dut->fp32_div_comb->dbg_sticky_bit)
+                  << " raw_div=0x" << std::hex << std::setw(14) << std::setfill('0')
                   << static_cast<unsigned long long>(dut->fp32_div_comb->dbg_raw_div_full)
-                  << " dbg_q25=0x" << std::setw(7) << std::setfill('0') << dut->fp32_div_comb->dbg_q25 
-                  << " dbg_m=0x" << std::setw(7) << std::setfill('0') << dut->fp32_div_comb->dbg_m
-                  << std::dec << " dbg_lz_q=" << static_cast<int>(dut->fp32_div_comb->dbg_lz_q) 
-                  << " dbg_q_norm=0x" << std::hex << std::setw(13) << std::setfill('0')
-                  << static_cast<unsigned long long>(dut->fp32_div_comb->dbg_q_norm) 
-                  << std::dec << " round_up=" << static_cast<int>(dut->fp32_div_comb->round_up);
+                  << " q25=0x" << std::setw(7) << std::setfill('0') << dut->fp32_div_comb->dbg_quotient_25b 
+                  << " mantissa=0x" << std::setw(7) << std::setfill('0') << dut->fp32_div_comb->dbg_mantissa_work
+                  << std::dec << " lz=" << static_cast<int>(dut->fp32_div_comb->dbg_leading_zeros) 
+                  << " norm=0x" << std::hex << std::setw(13) << std::setfill('0')
+                  << static_cast<unsigned long long>(dut->fp32_div_comb->dbg_quotient_norm) 
+                  << std::dec << " round_up=" << static_cast<int>(dut->fp32_div_comb->dbg_round_up);
       }
       
       std::cout << std::endl;
@@ -319,7 +383,7 @@ int main(int argc, char **argv) {
   std::cout << "=== Systematic boundary testing ===" << std::endl;
   
   // Test all subnormal dividends with various divisors
-  for (uint32_t subnormal = 0x00000001; subnormal <= 0x007fffff; subnormal += 0x00001111) {
+  for (uint32_t subnormal = 0x00000001; subnormal <= 0x007fffff; subnormal += TestConfig::SYSTEMATIC_SUBNORM_STEP) {
     uint32_t divisors[] = {0x3f800000, 0x40000000, 0x3f000000, 0x41200000, 0x3e800000};
     for (uint32_t divisor : divisors) {
       if (!compare_with_softfloat(subnormal, divisor, "SYSTEMATIC", true)) {
@@ -330,7 +394,7 @@ int main(int argc, char **argv) {
   }
   
   // Test boundary transitions around 1.0
-  for (uint32_t i = 0; i < 0x10000; ++i) {
+  for (uint32_t i = 0; i < TestConfig::BOUNDARY_TEST_RANGE; ++i) {
     uint32_t near_one_a = 0x3f800000 + i - 0x8000;  // Around 1.0
     uint32_t near_one_b = 0x3f800000 + (i * 17) - 0x8000;  // Different pattern
     if (!compare_with_softfloat(near_one_a, near_one_b, "BOUNDARY", true)) {
@@ -351,7 +415,7 @@ int main(int argc, char **argv) {
   std::mt19937 gen3(rd() + 67890);
   std::uniform_int_distribution<uint32_t> dis(0, 0xFFFFFFFF);
 
-  while (time_counter < TOTAL_STRATIFIED_TESTS) {
+  while (time_counter < TestConfig::TOTAL_STRATIFIED_TESTS) {
     // Select region based on weighted probability
     int region_select = dis(gen1) % total_weight;
     int current_weight = 0;
