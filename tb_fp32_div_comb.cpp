@@ -17,7 +17,7 @@ extern "C" {
 #include "softfloat.h"
 }
 
-int time_counter = 0;
+long int time_counter = 0;
 
 int main(int argc, char **argv) {
   // Parse command line arguments for verbose mode
@@ -64,7 +64,8 @@ int main(int argc, char **argv) {
   };
   
   //const int TOTAL_STRATIFIED_TESTS = 1000000;
-  const int TOTAL_STRATIFIED_TESTS = 60000000;
+  //const int TOTAL_STRATIFIED_TESTS = 700000000; //3min
+  const long int TOTAL_STRATIFIED_TESTS = 70000000000; //30min(expect)
   int total_weight = 0;
   for (auto& region : regions) total_weight += region.weight;
 
