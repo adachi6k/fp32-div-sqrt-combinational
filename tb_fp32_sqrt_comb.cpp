@@ -236,7 +236,7 @@ int main(int argc, char **argv) {
                          (dut->exc_overflow << 2) | (dut->exc_underflow << 1) |
                          (dut->exc_inexact);
       bool is_nan_case_cc = std::isnan(math_cc.f) && std::isnan(out_cc.f);
-      bool pass_cc = is_nan_case_cc || (ulp_diff_cc == 0);
+      bool pass_cc = is_nan_case_cc ? (out_cc.u == math_cc.u) : (ulp_diff_cc == 0);
       bool flags_pass_cc = (dut_flags_cc == math_flags_cc);
       bool overall_pass_cc = pass_cc && flags_pass_cc;
       // print only failures or verbose mode
@@ -407,8 +407,8 @@ int main(int argc, char **argv) {
 
     // If both outputs are NaN, consider as PASS
     bool is_nan_case = std::isnan(math_conv.f) && std::isnan(out_conv.f);
-    // strict ULP match: only zero-difference or NaN-to-NaN passes
-    bool pass = is_nan_case || (ulp_diff == 0);
+    // strict match: NaN bit patterns must match exactly (including payload)
+    bool pass = is_nan_case ? (out_conv.u == math_conv.u) : (ulp_diff == 0);
     bool overall_pass = pass && flag_pass;
 
     // Print only failures or verbose mode

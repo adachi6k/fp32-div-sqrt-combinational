@@ -178,8 +178,8 @@ int main(int argc, char **argv) {
       }
     }
     
-    // Check for mismatch
-    bool result_match = is_nan_case || (ulp_diff == 0);
+    // Check for mismatch (NaN: compare bit patterns exactly including payload)
+    bool result_match = is_nan_case ? (rtl_result.u == math_result_sf.v) : (ulp_diff == 0);
     bool flags_match = (rtl_flags == math_flags);
     bool overall_pass = result_match && flags_match;
     
@@ -315,8 +315,8 @@ int main(int argc, char **argv) {
         {0xbf800000, 0x3f800000}, // -1.0/1.0 -> -1.0
         {0x3f800000, 0xbf800000}, // 1.0/-1.0 -> -1.0
         {0xbf800000, 0xbf800000}, // -1.0/-1.0 -> 1.0
-        {0xff800000, 0x80000000}, // -inf/-0 -> inf (divzero)
-        {0x7f800000, 0x80000000}, // inf/-0 -> -inf (divzero)
+        {0xff800000, 0x80000000}, // -inf/-0 -> +inf (inf has priority over divzero)
+        {0x7f800000, 0x80000000}, // inf/-0 -> -inf (inf has priority over divzero)
         
         // === Previously observed failure cases ===
         {0x3781fd3f, 0xf8480000}, // 1.54959e-05/-1.62259e+34 (underflow)
@@ -442,7 +442,7 @@ int main(int argc, char **argv) {
     if (time_counter % 3 == 0) {
       // Sometimes use values from same region for both operands
       uint32_t range_b = selected_region->end - selected_region->start;
-      rand_bits_b = selected_region->start + (dis(gen2) % (range_b + 1));
+      rand_bits_b = selected_region->start + (dis(gen2) % range_b);
     } else {
       // Other times use completely different generator
       rand_bits_b = dis(gen3);

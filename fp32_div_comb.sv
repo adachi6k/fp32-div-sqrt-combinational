@@ -298,13 +298,13 @@ module fp32_div_comb (
     end else if (is_inf_a && is_inf_b) begin
       // inf/inf invalid
       exc_invalid = 1;
-      y = 32'h7fc00000;
+      y = 32'hffc00000;
     end else if (is_inf_a) begin
       y = {sign_z, 8'hff, 23'd0};
     end else if (is_zero_a && is_zero_b) begin
       // 0/0 invalid
       exc_invalid = 1'b1;
-      y = 32'h7fc00000;
+      y = 32'hffc00000;
     end else if (is_inf_b) begin
       // finite / inf => zero
       y = {sign_z, 8'd0, 23'd0};
@@ -351,15 +351,17 @@ module fp32_div_comb (
       m                      = sum_expr;  // pre-rounded mantissa with carry bit
       dbg_mantissa_work      = m;  // capture working mantissa in debug output
       dbg_round_up           = round_up;
-      // handle rounding carry-out
-      if (sum_expr[24]) begin
+      // handle rounding carry-out (norm1 tracks carry for exponent adjustment)
+      norm1 = sum_expr[24];
+      if (norm1) begin
         mant_rnd_div = sum_expr[24:1];
-        exp_sum      = exp_sum + 10'sd1;
       end else begin
         mant_rnd_div = sum_expr[23:0];
       end
       // final overflow/underflow checks
-      if (exp_sum > 10'sd254) begin
+      // Use exp_sum + norm1 for overflow/normal path (carry-adjusted),
+      // but keep exp_sum unchanged for subnormal shift calculation.
+      if ((exp_sum + $signed({9'd0, norm1})) > 10'sd254) begin
         // overflow: result too large -> infinity per IEEE754
         exc_overflow = 1'b1;
         exc_inexact  = 1'b1;
@@ -411,7 +413,7 @@ module fp32_div_comb (
            end
          end
       end else begin
-        exp_z = exp_sum[7:0];
+        exp_z = exp_sum[7:0] + {7'd0, norm1};
         // inexact if any rounding bits set
         exc_inexact = guard_div || round_div || sticky_div;
         // underflow if result subnormal after rounding

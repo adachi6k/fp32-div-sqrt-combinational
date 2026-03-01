@@ -1,0 +1,6 @@
+obj_dir/
+*.txt
+!README.md
+test_div_special.cpp
+test_lz.sv
+verify_count_lz_bug.cpp

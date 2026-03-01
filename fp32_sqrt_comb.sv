@@ -74,7 +74,7 @@ module fp32_sqrt_comb (
   function automatic [4:0] count_lz(input logic [23:0] mant);
     reg [4:0] idx;
     begin
-      count_lz = 5'd0;
+      count_lz = 5'd24;
       for (idx = 5'd23; idx != 5'd31; idx = idx - 1) begin
         if (mant[idx]) begin
           count_lz = 5'd23 - idx;
@@ -182,11 +182,12 @@ module fp32_sqrt_comb (
     if (is_nan) begin
       // NaN input: only signaling NaN raises invalid
       exc_invalid = (frac[22] == 1'b0) ? 1'b1 : 1'b0;
-      result = 32'h7fc00000;
+      // propagate NaN payload with quiet bit set (match SoftFloat)
+      result = {sign, 8'hff, 1'b1, frac[21:0]};
     end else if (is_neg && !is_zero) begin
       // negative input (except -0): invalid operation
       exc_invalid = 1'b1;
-      result = 32'h7fc00000;
+      result = 32'hffc00000;
     end else if (is_inf) begin
       // Infinity
       result = 32'h7f800000;
