@@ -125,3 +125,9 @@ The testbenches employ a multi-layered verification approach:
 ## License
 
 This project is released under the **MIT License**. See the `LICENSE` file for details.
+
+## Revision History
+
+| Date       | Description |
+|------------|-------------|
+| 2026-03-01 | Fix `count_lz` default return value from 0 to 24 for all-zero 24-bit input in `fp32_div_comb.sv` |
