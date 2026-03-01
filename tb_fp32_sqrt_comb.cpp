@@ -237,14 +237,21 @@ int main(int argc, char **argv) {
                          (dut->exc_inexact);
       bool is_nan_case_cc = std::isnan(math_cc.f) && std::isnan(out_cc.f);
       bool pass_cc = is_nan_case_cc || (ulp_diff_cc == 0);
+      bool flags_pass_cc = (dut_flags_cc == math_flags_cc);
+      bool overall_pass_cc = pass_cc && flags_pass_cc;
       // print only failures or verbose mode
-      if (!pass_cc || verbose) {
+      if (!overall_pass_cc || verbose) {
         std::cout << "[SQRT CASE " << i << "] a=" << conv_cc.f
                   << " | rtl=" << out_cc.f << " math=" << math_cc.f
                   << " | ulp_diff=" << ulp_diff_cc
                   << (pass_cc ? " PASS" : " FAIL") << " | flags math=0x"
                   << std::hex << math_flags_cc << " rtl=0x" << dut_flags_cc
-                  << std::dec << std::endl;
+                  << std::dec << (flags_pass_cc ? "" : " FLAG_FAIL") << std::endl;
+      }
+      if (!overall_pass_cc) {
+        dut->final();
+        delete dut;
+        return 1;
       }
     }
     std::cout << "=== Sqrt corner-case tests done ===" << std::endl;
@@ -268,13 +275,21 @@ int main(int argc, char **argv) {
                     (dut->exc_overflow << 2) | (dut->exc_underflow << 1) |
                     (dut->exc_inexact);
     
-    if (dut_flags != math_flags) {
+    bool result_match = (dut->y == r_sf.v);
+    bool flags_match = (dut_flags == math_flags);
+    if (!result_match || !flags_match) {
       union { float f; uint32_t u; } a_union = {.u = subnormal};
       union { float f; uint32_t u; } rtl_union = {.u = dut->y};
       union { float f; uint32_t u; } math_union = {.u = r_sf.v};
-      std::cout << "[SQRT SYS] FAIL: a=" << a_union.f << " rtl=" << rtl_union.f 
-                << " math=" << math_union.f << " math_flags=0x" << std::hex 
-                << math_flags << " rtl_flags=0x" << dut_flags << std::dec << std::endl;
+      std::cout << "[SQRT SYS] FAIL: a=" << a_union.f
+                << "(0x" << std::hex << std::setw(8) << std::setfill('0') << subnormal << ")"
+                << " rtl=0x" << std::setw(8) << std::setfill('0') << dut->y
+                << " math=0x" << std::setw(8) << std::setfill('0') << r_sf.v
+                << " math_flags=0x" << math_flags
+                << " rtl_flags=0x" << dut_flags << std::dec << std::endl;
+      dut->final();
+      delete dut;
+      return 1;
     }
     systematic_tests++;
   }
@@ -283,6 +298,26 @@ int main(int argc, char **argv) {
   for (uint32_t near_one = 0x3f7ff000; near_one <= 0x3f801000; near_one++) {
     dut->a = near_one;
     dut->eval();
+    
+    softfloat_exceptionFlags = 0;
+    float32_t a_sf_bnd;
+    a_sf_bnd.v = near_one;
+    float32_t r_sf_bnd = f32_sqrt(a_sf_bnd);
+    int math_flags_bnd = softfloat_exceptionFlags;
+    int dut_flags_bnd = (dut->exc_invalid << 4) | (dut->exc_divzero << 3) |
+                        (dut->exc_overflow << 2) | (dut->exc_underflow << 1) |
+                        (dut->exc_inexact);
+    
+    if (dut->y != r_sf_bnd.v || dut_flags_bnd != math_flags_bnd) {
+      std::cout << "[SQRT BOUNDARY] FAIL: a=0x" << std::hex << std::setw(8) << std::setfill('0') << near_one
+                << " rtl=0x" << std::setw(8) << std::setfill('0') << dut->y
+                << " math=0x" << std::setw(8) << std::setfill('0') << r_sf_bnd.v
+                << " rtl_flags=0x" << dut_flags_bnd
+                << " math_flags=0x" << math_flags_bnd << std::dec << std::endl;
+      dut->final();
+      delete dut;
+      return 1;
+    }
     systematic_tests++;
   }
   
@@ -391,6 +426,12 @@ int main(int argc, char **argv) {
                 << " | math_flags=0x" << std::hex << math_flags << std::dec
                 << " | dut_flags=0x" << std::hex << dut_flags << std::dec
                 << std::endl;
+    }
+
+    if (!overall_pass) {
+      dut->final();
+      delete dut;
+      return 1;
     }
 
     time_counter++;
