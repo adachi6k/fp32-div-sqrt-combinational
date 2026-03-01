@@ -46,11 +46,9 @@ This project provides high-performance, combinational floating-point arithmetic 
 
 ## Build & Test
 
-1. **Build SoftFloat reference library** (if not already built):
+1. **Build SoftFloat reference library** (RISC-V specialization):
    ```bash
-   cd softfloat/build/Linux-x86_64-GCC
-   make
-   cd ../../../
+   make softfloat      # Builds with SPECIALIZE_TYPE=RISCV (default)
    ```
 
 2. **Run comprehensive tests**:
@@ -95,11 +93,29 @@ module fp32_sqrt_comb (
 
 ## Implementation Details
 
-- **Algorithm**: Restoring division for divider, Newton-Raphson iteration for sqrt
+- **Algorithm**: Restoring division for divider, radix-4 pair-bit method for sqrt
 - **Precision**: Full 24-bit mantissa precision with proper guard/round/sticky bits
 - **Special Cases**: Complete handling of ±0, ±∞, NaN, subnormals per IEEE-754
 - **Rounding**: Round-to-nearest-even (ties to even) as per IEEE-754 default
 - **Exception Flags**: Full IEEE-754 exception flag generation
+
+### IEEE-754 Implementation-Defined Behavior
+
+IEEE-754 leaves certain behaviors as implementation-defined. This project follows
+the **RISC-V** specification for these choices:
+
+| Item | Behavior | IEEE-754 Reference |
+|------|----------|--------------------|
+| **Default NaN** | Canonical positive quiet NaN `0x7FC00000` | §6.2.3 — sign of default NaN is not specified |
+| **NaN propagation** | Always returns canonical NaN; input payload is not preserved | §6.2.3 — propagation rules are implementation-defined |
+| **NaN signaling** | Any signaling NaN input raises the invalid-operation exception | §7.2 |
+| **Rounding mode** | Round-to-nearest-even (RNE) only | §4.3.1 |
+| **Tininess detection** | Before rounding | §7.5 — may be detected before or after rounding |
+
+The reference model used for verification is [Berkeley SoftFloat](http://www.jhauser.us/arithmetic/SoftFloat.html)
+built with `SPECIALIZE_TYPE = RISCV` (see `softfloat/build/Linux-x86_64-GCC/Makefile`).
+Changing the specialization (e.g., to `8086-SSE` or `ARM-VFPv2`) will change
+default-NaN encoding and propagation rules, causing test mismatches.
 
 ## Verification Strategy
 
@@ -130,4 +146,7 @@ This project is released under the **MIT License**. See the `LICENSE` file for d
 
 | Date       | Description |
 |------------|-------------|
+| 2026-03-01 | Adopt RISC-V NaN specification: canonical NaN (`0x7FC00000`), no payload propagation. Switch SoftFloat to `SPECIALIZE_TYPE = RISCV`. Document implementation-defined behavior in README. |
+| 2026-03-01 | Fix testbench silent-pass bugs: add failure exits, strict NaN comparison, result value checks, and boundary test activation |
+| 2026-03-01 | Refactor `exp_sum` carry handling in divider; fix off-by-one in random range generation; correct misleading comments |
 | 2026-03-01 | Fix `count_lz` default return value from 0 to 24 for all-zero 24-bit input in `fp32_div_comb.sv` |

@@ -5,6 +5,9 @@ VERILATOR = verilator
 CC        = gcc
 CXX       = g++
 
+# SoftFloat specialization (RISCV canonical NaN, see README for details)
+SPECIALIZE_TYPE ?= RISCV
+
 # Paths to SoftFloat
 ROOTDIR := $(shell pwd)
 SOFT_INCLUDE_DIR := $(ROOTDIR)/softfloat/source/include
@@ -16,8 +19,12 @@ CFLAGS    = -I$(SOFT_INCLUDE_DIR) -I$(SOFT_BUILD_DIR)
 LDFLAGS   = -L$(SOFT_BUILD_DIR) -l:softfloat.a
 
 # Targets
-.PHONY: all div sqrt debug_div clean
+.PHONY: all div sqrt debug_div clean softfloat
 all: div sqrt
+
+# Build SoftFloat reference library with the chosen specialization
+softfloat:
+	$(MAKE) -C $(SOFT_BUILD_DIR) SPECIALIZE_TYPE=$(SPECIALIZE_TYPE)
 
 # Build and run fp32_div_comb testbench
 div:
